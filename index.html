@@ -328,13 +328,19 @@
 
         <h2 class="section-title">Data</h2>
         <div class="card">
-          <div class="text-dim" style="margin-bottom:14px;font-size:13px">All data is stored locally in this browser. Export to JSON for backup or to move between devices.</div>
-          <div class="btn-row">
-            <button onclick="exportData()">Export to JSON</button>
-            <button onclick="document.getElementById('importInput').click()">Import JSON</button>
+          <div class="note-banner warning" style="margin-top:0">
+            <strong>Browser-only storage.</strong>
+            All Field Studio data (series, subjects, deadlines, settings) lives in this browser's local storage; attachments (release forms, moodboard images, templates) live in this browser's IndexedDB. Nothing is synced to a server.
+            <div style="margin-top:8px">If you switch browsers, devices, profiles, or computers — or if you clear site data — your work won't follow. To move between browsers: <strong>Export</strong> here, then <strong>Import</strong> the file in the new browser.</div>
+            <div style="margin-top:8px">The export bundles your attachments inline (base64), so a single file carries everything across.</div>
+          </div>
+          <div class="btn-row" style="margin-top:14px">
+            <button class="btn-primary btn-sm" onclick="exportData()">Export (with attachments)</button>
+            <button class="btn-sm" onclick="document.getElementById('importInput').click()">Import from file</button>
             <input type="file" id="importInput" accept=".json" style="display:none" onchange="importData(event)">
             <button class="btn-danger btn-sm" onclick="wipeData()">Wipe all data</button>
           </div>
+          <div class="text-muted" style="font-size:11px;margin-top:10px;font-family:var(--font-mono)">Tip: take a fresh export every time you finish a shoot day. Exports are timestamped — keep the last few.</div>
         </div>
 
       </div>

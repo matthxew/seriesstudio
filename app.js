@@ -2036,8 +2036,50 @@ function setupCmdK() {
 // =====================================================
 // EXPORT / IMPORT / WIPE
 // =====================================================
-function exportData() {
-  const data = JSON.stringify(state, null, 2);
+// ===== Full export / import (bundles attachment blobs as base64) =====
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+function dataUrlToBlob(dataUrl) {
+  const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl);
+  if (!m) throw new Error('Bad data URL');
+  const mime = m[1];
+  const bin = atob(m[2]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+function collectAttachmentIds() {
+  const ids = new Set();
+  (state.sitters || []).forEach(p => (p.attachments || []).forEach(a => ids.add(a.id)));
+  (state.series || []).forEach(s => (s.moodboard || []).forEach(m => ids.add(m.id)));
+  (state.templates || []).forEach(t => { if (t.attachmentId) ids.add(t.attachmentId); });
+  return [...ids];
+}
+
+async function exportData() {
+  showToast('Preparing export…');
+  const ids = collectAttachmentIds();
+  const blobs = {};
+  let bundled = 0;
+  for (const id of ids) {
+    try {
+      const rec = await attGet(id);
+      if (rec && rec.blob) {
+        blobs[id] = await blobToDataUrl(rec.blob);
+        bundled++;
+      }
+    } catch (e) { console.warn('Could not bundle', id, e); }
+  }
+  const payload = { ...state, _attachmentBlobs: blobs, _exportedAt: new Date().toISOString() };
+  const data = JSON.stringify(payload);
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -2045,26 +2087,55 @@ function exportData() {
   const stamp = new Date().toISOString().split('T')[0];
   a.download = 'field_studio_' + stamp + '.json';
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  showToast(`Exported. Bundled ${bundled} attachment${bundled === 1 ? '' : 's'}.`);
 }
 
 function importData(event) {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.users || !data.series || !data.sitters) throw new Error('Invalid file format');
-      if (confirm('Replace all current data with imported data?')) {
-        state = data;
-        if (!state.settings) state.settings = { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'dark' };
-        if (!state.settings.theme) state.settings.theme = 'dark';
-        saveState();
-        applyTheme(state.settings.theme);
-        renderAll();
+      const blobMap = data._attachmentBlobs || null;
+      const blobCount = blobMap ? Object.keys(blobMap).length : 0;
+      const msg = blobCount
+        ? `Replace all current data with imported data? ${blobCount} attachment${blobCount === 1 ? '' : 's'} will also be restored.`
+        : 'Replace all current data with imported data? Attachments are not bundled in this export — file refs may resolve to blank.';
+      if (!confirm(msg)) return;
+
+      // Strip the bundled blobs before persisting state; they live in IDB.
+      delete data._attachmentBlobs;
+      delete data._exportedAt;
+
+      state = data;
+      if (!state.settings) state.settings = { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'light' };
+      if (!state.settings.theme) state.settings.theme = 'light';
+      saveState();
+      applyTheme(state.settings.theme);
+
+      if (blobMap) {
+        let restored = 0;
+        for (const [id, dataUrl] of Object.entries(blobMap)) {
+          try {
+            const blob = dataUrlToBlob(dataUrl);
+            const db = await attDb();
+            await new Promise((resolve, reject) => {
+              const tx = db.transaction(ATT_STORE, 'readwrite');
+              tx.objectStore(ATT_STORE).put({ id, blob, addedAt: new Date().toISOString() });
+              tx.oncomplete = () => resolve();
+              tx.onerror = () => reject(tx.error);
+            });
+            restored++;
+          } catch (err) { console.warn('Restore failed for', id, err); }
+        }
+        showToast(`Imported. Restored ${restored} attachment${restored === 1 ? '' : 's'}.`);
+      } else {
         showToast('Imported.');
       }
+      renderAll();
     } catch (err) { showToast('Import failed: ' + err.message, { tone: 'danger' }); }
   };
   reader.readAsText(file);
@@ -2075,16 +2146,17 @@ function wipeData() {
   if (!confirm('Permanently delete all data? This cannot be undone.')) return;
   if (!confirm('Are you absolutely sure?')) return;
   const userId = uid('u');
+  const prevTheme = state.settings?.theme || 'light';
   state = {
-    version: '1.1',
+    version: '1.3',
     currentUserId: userId,
     users: [{ id: userId, name: 'Matthew', email: 'mjfloxx@gmail.com', team: 'Solo', role: 'owner' }],
-    series: [], sitters: [], deadlines: [], activity: [],
-    settings: { apiKey: '', apiModel: 'claude-opus-4-6', theme: state.settings?.theme || 'dark' }
+    series: [], sitters: [], deadlines: [], templates: [], activity: [],
+    settings: { apiKey: '', apiModel: 'claude-opus-4-6', theme: prevTheme, themeUserSet: true }
   };
   saveState();
   renderAll();
-  showToast('All data wiped.');
+  showToast('All data wiped. Attachments in IndexedDB are orphaned but harmless; they will be cleared if you re-import or run Seed demo data.');
 }
 
 // =====================================================
