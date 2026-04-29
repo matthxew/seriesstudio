@@ -1,0 +1,1878 @@
+// =====================================================
+// FIELD STUDIO
+// Single-page documentary photography pipeline tool
+// =====================================================
+
+const STORAGE_KEY = 'field_studio_v1';
+
+const STATUSES = [
+  { id: 'prospect', name: 'Prospect' },
+  { id: 'contacted', name: 'Contacted' },
+  { id: 'agreed', name: 'Agreed' },
+  { id: 'scheduled', name: 'Scheduled' },
+  { id: 'shot', name: 'Shot' },
+  { id: 'in_lab', name: 'In lab' },
+  { id: 'scored', name: 'Scored' },
+  { id: 'finalized', name: 'Finalized' },
+  { id: 'submitted', name: 'Submitted' },
+  { id: 'published', name: 'Published' },
+  { id: 'declined', name: 'Declined' }
+];
+
+const DIMENSION_TYPES = [
+  { id: 'categorical_targets', name: 'Categorical with targets', help: 'Discrete options with target counts; coverage shows actual vs target.' },
+  { id: 'categorical_open', name: 'Categorical (free)', help: 'Discrete options without targets; coverage shows distribution.' },
+  { id: 'numerical', name: 'Numerical (e.g., age)', help: 'Numeric value per sitter; coverage shows distribution.' },
+  { id: 'text', name: 'Free text', help: 'Free-form per sitter; not aggregated.' }
+];
+
+let state = loadState();
+let editingSeriesId = null;
+let editingSitterId = null;
+let editingDeadlineId = null;
+let workingSeries = null;
+let workingSitter = null;
+let workingDeadline = null;
+let sitterViewMode = 'list';
+let detailSeriesId = null;
+let activeTab = 'dashboard';
+
+// =====================================================
+// HELPERS
+// =====================================================
+function uid(prefix) {
+  return (prefix || 'x') + '_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (!parsed.settings) parsed.settings = { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'dark' };
+      if (!parsed.settings.theme) parsed.settings.theme = 'dark';
+      return parsed;
+    }
+  } catch (e) { console.warn('loadState failed', e); }
+  const userId = uid('u');
+  return {
+    version: '1.1',
+    currentUserId: userId,
+    users: [{ id: userId, name: 'Matthew', email: 'mjfloxx@gmail.com', team: 'Solo', role: 'owner' }],
+    series: [],
+    sitters: [],
+    deadlines: [],
+    activity: [],
+    settings: { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'dark' }
+  };
+}
+
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch (e) { showToast('Could not save: ' + e.message, { tone: 'danger' }); }
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function getCurrentUser() {
+  return state.users.find(u => u.id === state.currentUserId) || state.users[0];
+}
+
+function logActivity(type, summary, entityType, entityId) {
+  state.activity.unshift({
+    id: uid('a'),
+    userId: state.currentUserId,
+    type, entityType, entityId, summary,
+    at: new Date().toISOString()
+  });
+  if (state.activity.length > 200) state.activity = state.activity.slice(0, 200);
+}
+
+function timeAgo(iso) {
+  const now = new Date();
+  const then = new Date(iso);
+  const diff = (now - then) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+  return then.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function avatarFor(user) {
+  if (!user) return '?';
+  return (user.name || '?').trim().charAt(0).toUpperCase();
+}
+
+function statusName(id) {
+  const s = STATUSES.find(x => x.id === id);
+  return s ? s.name : id;
+}
+
+// =====================================================
+// THEME
+// =====================================================
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const icon = document.getElementById('themeIcon');
+  if (icon) {
+    icon.innerHTML = theme === 'dark'
+      ? '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+      : '<circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>';
+  }
+}
+
+function toggleTheme() {
+  const next = (state.settings.theme === 'dark') ? 'light' : 'dark';
+  state.settings.theme = next;
+  saveState();
+  applyTheme(next);
+}
+
+// =====================================================
+// TAB NAVIGATION
+// =====================================================
+function switchTab(name) {
+  activeTab = name;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.tab === name));
+  document.querySelectorAll('.panel').forEach(el => el.classList.toggle('active', el.id === 'panel-' + name));
+  const titles = { dashboard: 'Dashboard', series: 'Series', sitters: 'Sitters', calendar: 'Calendar', activity: 'Activity', settings: 'Settings' };
+  const crumb = document.getElementById('crumb');
+  if (crumb) crumb.textContent = titles[name] || name;
+}
+
+// =====================================================
+// USER MANAGEMENT
+// =====================================================
+function openUserMenu() {
+  const list = document.getElementById('userMenuList');
+  list.innerHTML = state.users.map(u => `
+    <li onclick="switchUser('${u.id}')" class="${u.id === state.currentUserId ? 'active' : ''}">
+      <span style="display:flex;align-items:center;gap:10px"><span class="user-avatar">${avatarFor(u)}</span> ${escapeHtml(u.name)} ${u.id === state.currentUserId ? '<span class="text-muted">(current)</span>' : ''}</span>
+      <span class="text-muted">${escapeHtml(u.role)}</span>
+    </li>
+  `).join('');
+  document.getElementById('userMenuModal').classList.add('active');
+}
+
+function switchUser(userId) {
+  state.currentUserId = userId;
+  saveState();
+  closeModal('userMenuModal');
+  renderAll();
+  logActivity('user_switch', getCurrentUser().name + ' is now active', 'user', userId);
+}
+
+function addCollaborator() {
+  const name = prompt('Name of the new user (e.g., a picture editor or collaborator):');
+  if (!name) return;
+  const email = prompt('Email (optional):') || '';
+  const newUser = { id: uid('u'), name, email, team: getCurrentUser().team || 'Solo', role: 'editor' };
+  state.users.push(newUser);
+  logActivity('user_added', 'Added ' + name, 'user', newUser.id);
+  saveState();
+  closeModal('userMenuModal');
+  renderAll();
+}
+
+function saveProfile() {
+  const u = getCurrentUser();
+  if (!u) return;
+  u.name = document.getElementById('setName').value || u.name;
+  u.email = document.getElementById('setEmail').value || u.email;
+  u.team = document.getElementById('setTeam').value || u.team;
+  u.role = document.getElementById('setRole').value || u.role;
+  saveState();
+  renderAll();
+  showToast('Profile saved.');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('active');
+  if (id === 'seriesModal') editingSeriesId = null;
+  if (id === 'sitterModal') editingSitterId = null;
+  if (id === 'deadlineModal') editingDeadlineId = null;
+}
+
+// =====================================================
+// SERIES CRUD
+// =====================================================
+function openSeriesModal(id) {
+  editingSeriesId = id || null;
+  workingSeries = id ? JSON.parse(JSON.stringify(state.series.find(s => s.id === id))) : emptySeries();
+  document.getElementById('seriesModalTitle').textContent = id ? 'Edit series' : 'New series';
+  document.getElementById('seriesDeleteBtn').style.display = id ? 'inline-block' : 'none';
+  document.getElementById('seriesModalBody').innerHTML = renderSeriesForm(workingSeries);
+  document.getElementById('seriesModal').classList.add('active');
+}
+
+function emptySeries() {
+  const u = getCurrentUser();
+  return {
+    id: uid('s'),
+    ownerId: u.id,
+    collaboratorIds: [],
+    name: '', thesis: '',
+    targetSitterCount: 12,
+    targetCompletionDate: '',
+    outputGoals: '', visualStyleNotes: '',
+    dimensions: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function renderSeriesForm(s) {
+  return `
+    <div class="form-row">
+      <div class="form-group">
+        <label>Series name</label>
+        <input type="text" id="ser_name" value="${escapeHtml(s.name)}" placeholder="e.g., Latinos in the UK">
+      </div>
+      <div class="form-group">
+        <label>Target sitter count</label>
+        <input type="number" id="ser_target" value="${s.targetSitterCount || 12}" min="1">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Series thesis</label>
+      <textarea id="ser_thesis" placeholder="One paragraph: what this body of work is about, what wider truth it carries.">${escapeHtml(s.thesis)}</textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Target completion date</label>
+        <input type="date" id="ser_targetDate" value="${escapeHtml(s.targetCompletionDate || '')}">
+      </div>
+      <div class="form-group">
+        <label>Output goals</label>
+        <input type="text" id="ser_outputs" value="${escapeHtml(s.outputGoals || '')}" placeholder="e.g., POB Vol. 9, microsite, zine">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Visual style notes (optional)</label>
+      <textarea id="ser_visual" placeholder="Light, palette, framing approach...">${escapeHtml(s.visualStyleNotes || '')}</textarea>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="flex-between" style="margin-bottom:10px">
+      <div>
+        <strong style="font-size:14px">Custom tracking dimensions</strong>
+        <div class="text-dim" style="margin-top:2px;font-size:12px">Define exactly what matters for THIS project. Most photographers track 2 to 5 dimensions.</div>
+      </div>
+      <button class="btn-sm" onclick="addDimensionToWorkingSeries()">Add dimension</button>
+    </div>
+    <div id="dimensionsList">${renderDimensionsList(s)}</div>
+  `;
+}
+
+function renderDimensionsList(s) {
+  if (!s.dimensions || s.dimensions.length === 0) {
+    return '<div class="text-dim" style="font-style:italic;padding:14px 0">No dimensions yet. Add one to start tracking coverage.</div>';
+  }
+  return s.dimensions.map((d, idx) => renderDimensionBlock(d, idx)).join('');
+}
+
+function renderDimensionBlock(d, idx) {
+  let optionsHtml = '';
+  if (d.type === 'categorical_targets' || d.type === 'categorical_open') {
+    optionsHtml = '<div style="margin-top:8px">';
+    optionsHtml += '<div class="option-row" style="font-size:11px;color:var(--text-muted);letter-spacing:0.3px"><div>Option</div>' + (d.type === 'categorical_targets' ? '<div>Target count</div>' : '<div></div>') + '<div></div></div>';
+    (d.options || []).forEach((opt, oi) => {
+      const targetInput = d.type === 'categorical_targets'
+        ? `<input type="number" value="${opt.target || 0}" min="0" oninput="updateDimensionOption(${idx}, ${oi}, 'target', parseInt(this.value, 10))">`
+        : '<div></div>';
+      optionsHtml += `
+        <div class="option-row">
+          <input type="text" value="${escapeHtml(opt.value || '')}" oninput="updateDimensionOption(${idx}, ${oi}, 'value', this.value)" placeholder="Option label">
+          ${targetInput}
+          <button class="btn-sm btn-danger" onclick="removeDimensionOption(${idx}, ${oi})">Remove</button>
+        </div>`;
+    });
+    optionsHtml += '<button class="btn-sm" style="margin-top:6px" onclick="addDimensionOption(' + idx + ')">+ Add option</button>';
+    optionsHtml += '</div>';
+  }
+  return `
+    <div class="dimension-block">
+      <div class="dim-head">
+        <div style="flex:1">
+          <div class="flex-row">
+            <input type="text" value="${escapeHtml(d.name || '')}" placeholder="Dimension name (e.g., Generation, City, Age)" oninput="updateDimensionField(${idx}, 'name', this.value)" style="font-weight:500">
+            <span class="dim-type-pill">${escapeHtml(getDimensionTypeName(d.type))}</span>
+          </div>
+        </div>
+        <button class="btn-sm btn-danger" onclick="removeDimension(${idx})">Remove</button>
+      </div>
+      <div class="form-row" style="margin-bottom:8px">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Type</label>
+          <select onchange="updateDimensionField(${idx}, 'type', this.value)">
+            ${DIMENSION_TYPES.map(t => `<option value="${t.id}" ${d.type === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Why this matters</label>
+          <input type="text" value="${escapeHtml(d.description || '')}" placeholder="Optional. Why are you tracking this?" oninput="updateDimensionField(${idx}, 'description', this.value)">
+        </div>
+      </div>
+      ${optionsHtml}
+    </div>
+  `;
+}
+
+function getDimensionTypeName(t) {
+  const found = DIMENSION_TYPES.find(x => x.id === t);
+  return found ? found.name : t;
+}
+
+function addDimensionToWorkingSeries() {
+  if (!workingSeries.dimensions) workingSeries.dimensions = [];
+  workingSeries.dimensions.push({ id: uid('d'), name: '', type: 'categorical_targets', description: '', options: [{ value: '', target: 0 }] });
+  refreshDimensionsList();
+}
+
+function removeDimension(idx) {
+  workingSeries.dimensions.splice(idx, 1);
+  refreshDimensionsList();
+}
+
+function updateDimensionField(idx, field, value) {
+  if (!workingSeries.dimensions[idx]) return;
+  workingSeries.dimensions[idx][field] = value;
+  if (field === 'type') {
+    if ((value === 'categorical_targets' || value === 'categorical_open') && (!workingSeries.dimensions[idx].options || workingSeries.dimensions[idx].options.length === 0)) {
+      workingSeries.dimensions[idx].options = [{ value: '', target: 0 }];
+    }
+    refreshDimensionsList();
+  }
+}
+
+function addDimensionOption(idx) {
+  if (!workingSeries.dimensions[idx].options) workingSeries.dimensions[idx].options = [];
+  workingSeries.dimensions[idx].options.push({ value: '', target: 0 });
+  refreshDimensionsList();
+}
+
+function removeDimensionOption(idx, oi) {
+  workingSeries.dimensions[idx].options.splice(oi, 1);
+  refreshDimensionsList();
+}
+
+function updateDimensionOption(idx, oi, field, value) {
+  workingSeries.dimensions[idx].options[oi][field] = value;
+}
+
+function refreshDimensionsList() {
+  document.getElementById('dimensionsList').innerHTML = renderDimensionsList(workingSeries);
+}
+
+function saveSeries() {
+  workingSeries.name = document.getElementById('ser_name').value.trim();
+  if (!workingSeries.name) { showToast('Series name is required.', { tone: 'danger' }); return; }
+  workingSeries.thesis = document.getElementById('ser_thesis').value;
+  workingSeries.targetSitterCount = parseInt(document.getElementById('ser_target').value, 10) || 12;
+  workingSeries.targetCompletionDate = document.getElementById('ser_targetDate').value;
+  workingSeries.outputGoals = document.getElementById('ser_outputs').value;
+  workingSeries.visualStyleNotes = document.getElementById('ser_visual').value;
+  workingSeries.updatedAt = new Date().toISOString();
+
+  if (editingSeriesId) {
+    const idx = state.series.findIndex(s => s.id === editingSeriesId);
+    if (idx >= 0) state.series[idx] = workingSeries;
+    logActivity('series_updated', 'Updated series: ' + workingSeries.name, 'series', workingSeries.id);
+  } else {
+    state.series.push(workingSeries);
+    logActivity('series_created', 'Created series: ' + workingSeries.name, 'series', workingSeries.id);
+  }
+  saveState();
+  closeModal('seriesModal');
+  renderAll();
+}
+
+function deleteSeries() {
+  if (!editingSeriesId) return;
+  const s = state.series.find(x => x.id === editingSeriesId);
+  if (!s) return;
+  const seriesSnap = JSON.parse(JSON.stringify(s));
+  const sitterSnaps = state.sitters
+    .filter(p => p.seriesId === editingSeriesId)
+    .map(p => ({ id: p.id, seriesId: p.seriesId }));
+
+  state.series = state.series.filter(x => x.id !== editingSeriesId);
+  state.sitters.forEach(p => { if (p.seriesId === editingSeriesId) p.seriesId = ''; });
+  logActivity('series_deleted', 'Deleted series: ' + s.name, 'series', editingSeriesId);
+  saveState();
+  closeModal('seriesModal');
+  renderAll();
+
+  showToast(`Series "${s.name}" deleted`, {
+    undo: () => {
+      state.series.push(seriesSnap);
+      sitterSnaps.forEach(snap => {
+        const cur = state.sitters.find(p => p.id === snap.id);
+        if (cur) cur.seriesId = snap.seriesId;
+      });
+      logActivity('series_restored', 'Restored series: ' + s.name, 'series', s.id);
+      saveState();
+      renderAll();
+    }
+  });
+}
+
+// =====================================================
+// SERIES DETAIL VIEW
+// =====================================================
+function openSeriesDetail(id) {
+  detailSeriesId = id;
+  const s = state.series.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('seriesDetailTitle').textContent = s.name;
+  document.getElementById('seriesDetailBody').innerHTML = renderSeriesDetail(s);
+  document.getElementById('seriesDetailModal').classList.add('active');
+}
+
+function editSeriesFromDetail() {
+  if (!detailSeriesId) return;
+  closeModal('seriesDetailModal');
+  openSeriesModal(detailSeriesId);
+}
+
+function renderSeriesDetail(s) {
+  const sitters = state.sitters.filter(p => p.seriesId === s.id);
+  const finalized = sitters.filter(p => ['finalized', 'submitted', 'published'].includes(p.status)).length;
+  const progress = Math.min(100, Math.round((finalized / (s.targetSitterCount || 12)) * 100));
+
+  return `
+    <div class="form-row" style="margin-bottom:18px">
+      <div>
+        <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">THESIS</div>
+        <div style="font-size:14px;line-height:1.55">${escapeHtml(s.thesis) || '<span class="text-dim">No thesis yet</span>'}</div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">OUTPUT GOALS</div>
+        <div style="font-size:14px">${escapeHtml(s.outputGoals) || '<span class="text-dim">Not set</span>'}</div>
+        ${s.targetCompletionDate ? '<div class="text-muted" style="margin-top:6px;font-family:var(--font-mono);font-size:11px">Target completion: ' + formatDate(s.targetCompletionDate) + '</div>' : ''}
+      </div>
+    </div>
+
+    <div class="card stat-card" style="margin-bottom:20px">
+      <div class="flex-between">
+        <div>
+          <div class="label">Series progress</div>
+          <div class="value">${finalized} <span style="color:var(--text-muted)">/ ${s.targetSitterCount || 12}</span></div>
+          <div class="sub">finalized sitters out of target</div>
+        </div>
+        <div style="text-align:right;min-width:200px">
+          <div class="text-muted" style="font-size:11px;font-family:var(--font-mono)">${progress}% to goal</div>
+          <div class="series-progress-track" style="margin-top:8px">
+            <div class="series-progress-fill" style="width:${progress}%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin:24px 0 8px">Coverage by dimension</h3>
+    <div class="text-dim" style="margin-bottom:14px;font-size:13px">How your sitters distribute across the dimensions you defined for this series.</div>
+    ${renderCoverage(s, sitters)}
+
+    <div style="margin-top:24px">
+      <div class="flex-between" style="margin-bottom:10px">
+        <h3 style="margin:0">AI gap analysis</h3>
+        <button class="btn-primary btn-sm" onclick="aiGapAnalysis('${s.id}')" id="gapAnalysisBtn">Run AI gap analysis</button>
+      </div>
+      <div id="gapAnalysisOutput" class="text-dim" style="font-size:13px">Click the button to ask Claude what your project is structurally missing, given the thesis and current sitter mix. Requires API key in Settings.</div>
+    </div>
+
+    <h3 style="margin:28px 0 10px">Sitters in this series <span class="text-muted" style="font-family:var(--font-mono);font-size:12px;font-weight:400">${sitters.length}</span></h3>
+    <div class="btn-row" style="margin-bottom:10px">
+      <button class="btn-primary btn-sm" onclick="closeModal('seriesDetailModal'); openSitterModal(null, '${s.id}')">Add sitter to this series</button>
+    </div>
+    ${renderSitterListCompact(sitters)}
+  `;
+}
+
+function renderCoverage(s, sitters) {
+  if (!s.dimensions || s.dimensions.length === 0) {
+    return '<div class="text-dim" style="font-style:italic">No dimensions defined. Edit the series to add tracking dimensions.</div>';
+  }
+  return s.dimensions.map(d => {
+    if (d.type === 'categorical_targets') return renderCategoricalTargetsCoverage(d, sitters);
+    if (d.type === 'categorical_open') return renderCategoricalOpenCoverage(d, sitters);
+    if (d.type === 'numerical') return renderNumericalCoverage(d, sitters);
+    return renderTextCoverage(d, sitters);
+  }).join('');
+}
+
+function renderCategoricalTargetsCoverage(d, sitters) {
+  const counts = {};
+  (d.options || []).forEach(o => { counts[o.value] = 0; });
+  sitters.forEach(p => {
+    const v = p.dimensionValues && p.dimensionValues[d.id];
+    if (v && counts.hasOwnProperty(v)) counts[v]++;
+  });
+  let html = `<div class="card" style="margin-bottom:12px"><div style="font-weight:500;font-size:14px;margin-bottom:6px">${escapeHtml(d.name)}</div>`;
+  if (d.description) html += `<div class="text-dim" style="font-size:12px;margin-bottom:12px">${escapeHtml(d.description)}</div>`;
+  (d.options || []).forEach(o => {
+    const actual = counts[o.value] || 0;
+    const target = o.target || 0;
+    const pct = target > 0 ? Math.min(100, (actual / target) * 100) : 0;
+    const status = actual >= target ? 'over-target' : (actual >= target * 0.5 ? '' : 'under-target');
+    html += `
+      <div style="margin-bottom:10px">
+        <div class="coverage-label">
+          <span class="label-name">${escapeHtml(o.value || '(unnamed)')}</span>
+          <span class="label-meta">${actual} / ${target}</span>
+        </div>
+        <div class="coverage-bar-wrap"><div class="coverage-bar ${status}" style="width:${pct}%"></div></div>
+      </div>
+    `;
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderCategoricalOpenCoverage(d, sitters) {
+  const counts = {};
+  sitters.forEach(p => {
+    const v = p.dimensionValues && p.dimensionValues[d.id];
+    if (v) counts[v] = (counts[v] || 0) + 1;
+  });
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  let html = `<div class="card" style="margin-bottom:12px"><div style="font-weight:500;font-size:14px;margin-bottom:6px">${escapeHtml(d.name)}</div>`;
+  if (d.description) html += `<div class="text-dim" style="font-size:12px;margin-bottom:12px">${escapeHtml(d.description)}</div>`;
+  if (entries.length === 0) {
+    html += '<div class="text-dim" style="font-style:italic;font-size:12px">No data yet.</div>';
+  } else {
+    const max = Math.max(...entries.map(e => e[1]), 1);
+    entries.forEach(([k, v]) => {
+      html += `
+        <div style="margin-bottom:8px">
+          <div class="coverage-label"><span class="label-name">${escapeHtml(k)}</span><span class="label-meta">${v}</span></div>
+          <div class="coverage-bar-wrap"><div class="coverage-bar" style="width:${(v / max) * 100}%"></div></div>
+        </div>
+      `;
+    });
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderNumericalCoverage(d, sitters) {
+  const vals = sitters.map(p => parseFloat(p.dimensionValues && p.dimensionValues[d.id])).filter(v => !isNaN(v));
+  let html = `<div class="card" style="margin-bottom:12px"><div style="font-weight:500;font-size:14px;margin-bottom:6px">${escapeHtml(d.name)}</div>`;
+  if (d.description) html += `<div class="text-dim" style="font-size:12px;margin-bottom:12px">${escapeHtml(d.description)}</div>`;
+  if (vals.length === 0) {
+    html += '<div class="text-dim" style="font-style:italic;font-size:12px">No data yet.</div>';
+  } else {
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const avg = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1);
+    html += `<div class="text-dim" style="font-size:13px;font-family:var(--font-mono)">N=${vals.length}, min ${min}, max ${max}, avg ${avg}</div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderTextCoverage(d, sitters) {
+  const vals = sitters.map(p => p.dimensionValues && p.dimensionValues[d.id]).filter(v => v && v.trim());
+  let html = `<div class="card" style="margin-bottom:12px"><div style="font-weight:500;font-size:14px;margin-bottom:6px">${escapeHtml(d.name)}</div>`;
+  if (d.description) html += `<div class="text-dim" style="font-size:12px;margin-bottom:12px">${escapeHtml(d.description)}</div>`;
+  html += `<div class="text-dim" style="font-size:13px">${vals.length} sitter(s) have a value. Free-text dimensions are not aggregated.</div>`;
+  html += '</div>';
+  return html;
+}
+
+function renderSitterListCompact(sitters) {
+  if (sitters.length === 0) return '<div class="text-dim" style="font-style:italic;font-size:13px">No sitters yet.</div>';
+  return '<div>' + sitters.map(p => `
+    <div onclick="closeModal('seriesDetailModal'); openSitterModal('${p.id}')" class="sitter-row" style="grid-template-columns:1fr 120px">
+      <div>
+        <div class="name">${escapeHtml(p.name)}</div>
+        <div class="meta">${escapeHtml(p.location || 'no location')}${p.widerTruth ? ' · ' + escapeHtml(p.widerTruth.slice(0, 60)) + (p.widerTruth.length > 60 ? '...' : '') : ''}</div>
+      </div>
+      <div class="right"><span class="pill pill-${p.status}"><span class="dot"></span>${escapeHtml(statusName(p.status))}</span></div>
+    </div>
+  `).join('') + '</div>';
+}
+
+// =====================================================
+// SITTER CRUD
+// =====================================================
+function openSitterModal(id, presetSeriesId) {
+  editingSitterId = id || null;
+  workingSitter = id ? JSON.parse(JSON.stringify(state.sitters.find(p => p.id === id))) : emptySitter(presetSeriesId);
+  document.getElementById('sitterModalTitle').textContent = id ? 'Edit sitter' : 'New sitter';
+  document.getElementById('sitterDeleteBtn').style.display = id ? 'inline-block' : 'none';
+  document.getElementById('sitterModalBody').innerHTML = renderSitterForm(workingSitter);
+  document.getElementById('sitterModal').classList.add('active');
+}
+
+function emptySitter(presetSeriesId) {
+  const u = getCurrentUser();
+  return {
+    id: uid('p'),
+    seriesId: presetSeriesId || (state.series[0] ? state.series[0].id : ''),
+    ownerId: u.id,
+    name: '', pronouns: '',
+    contactEmail: '', contactPhone: '', contactSocial: '',
+    location: '', meetingContext: '',
+    widerTruth: '', story: '', preShootNotes: '',
+    status: 'prospect',
+    statusUpdatedAt: new Date().toISOString(),
+    lastContactedAt: '', lastShotAt: '',
+    release: { status: 'not_sent', sentAt: '', signedAt: '', notes: '' },
+    dimensionValues: {},
+    shoots: [], quotes: [], notes: [],
+    aiOutreach: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    addedByUserId: u.id
+  };
+}
+
+function renderSitterForm(p) {
+  const series = state.series.find(s => s.id === p.seriesId);
+  const dimensions = series ? series.dimensions || [] : [];
+  return `
+    <div class="form-row">
+      <div class="form-group">
+        <label>Sitter name</label>
+        <input type="text" id="st_name" value="${escapeHtml(p.name)}" placeholder="Full name">
+      </div>
+      <div class="form-group">
+        <label>Pronouns</label>
+        <input type="text" id="st_pronouns" value="${escapeHtml(p.pronouns)}" placeholder="e.g., she/her">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Series</label>
+        <select id="st_series" onchange="onSitterSeriesChange()">
+          <option value="">-- choose --</option>
+          ${state.series.map(s => `<option value="${s.id}" ${p.seriesId === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="st_status">
+          ${STATUSES.map(s => `<option value="${s.id}" ${p.status === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Location</label>
+      <input type="text" id="st_location" value="${escapeHtml(p.location)}" placeholder="e.g., Hackney, London">
+    </div>
+    <div class="form-group">
+      <label>Meeting context</label>
+      <input type="text" id="st_meeting" value="${escapeHtml(p.meetingContext)}" placeholder="How you met or found them">
+    </div>
+    <div class="form-group">
+      <label>The wider truth they exemplify</label>
+      <textarea id="st_widerTruth" placeholder="What wider story does this sitter carry? AI story coach can help refine this." style="min-height:60px">${escapeHtml(p.widerTruth)}</textarea>
+    </div>
+    <div class="form-group">
+      <label>Their story</label>
+      <textarea id="st_story" placeholder="Background, context, why this person matters to your series." style="min-height:80px">${escapeHtml(p.story)}</textarea>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="form-row-3">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="st_email" value="${escapeHtml(p.contactEmail)}">
+      </div>
+      <div class="form-group">
+        <label>Phone</label>
+        <input type="text" id="st_phone" value="${escapeHtml(p.contactPhone)}">
+      </div>
+      <div class="form-group">
+        <label>Social handle</label>
+        <input type="text" id="st_social" value="${escapeHtml(p.contactSocial)}" placeholder="@handle">
+      </div>
+    </div>
+
+    ${dimensions.length > 0 ? `
+      <div class="divider"></div>
+      <strong style="font-size:14px">Custom dimensions for "${escapeHtml(series.name)}"</strong>
+      <div class="text-dim" style="margin-bottom:10px;font-size:12px">These were defined when you set up the series.</div>
+      <div class="form-row">
+        ${dimensions.map(d => renderDimensionInput(d, p)).join('')}
+      </div>
+    ` : (p.seriesId ? '<div class="text-dim" style="margin-top:14px;font-style:italic;font-size:12px">This series has no custom dimensions yet.</div>' : '')}
+
+    <div class="divider"></div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Last contacted</label>
+        <input type="date" id="st_lastContacted" value="${escapeHtml(p.lastContactedAt || '')}">
+      </div>
+      <div class="form-group">
+        <label>Last shot</label>
+        <input type="date" id="st_lastShot" value="${escapeHtml(p.lastShotAt || '')}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Pre-shoot notes</label>
+      <textarea id="st_preNotes" placeholder="What to bring, what to ask, what light to plan for...">${escapeHtml(p.preShootNotes)}</textarea>
+    </div>
+
+    <div class="divider"></div>
+    <strong style="font-size:14px">Release form status</strong>
+    <div class="form-row" style="margin-top:8px">
+      <div class="form-group">
+        <label>Status</label>
+        <select id="st_releaseStatus">
+          <option value="not_sent" ${p.release.status === 'not_sent' ? 'selected' : ''}>Not sent</option>
+          <option value="sent" ${p.release.status === 'sent' ? 'selected' : ''}>Sent</option>
+          <option value="signed" ${p.release.status === 'signed' ? 'selected' : ''}>Signed</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <input type="text" id="st_releaseNotes" value="${escapeHtml(p.release.notes || '')}" placeholder="e.g., paper copy in studio drawer">
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <strong style="font-size:14px">Sitter quotes</strong>
+    <div class="text-dim" style="margin-bottom:10px;font-size:12px">Direct quotes — used in captions. One per line.</div>
+    <textarea id="st_quotes" placeholder="One quote per line." style="min-height:80px">${escapeHtml((p.quotes || []).join('\n'))}</textarea>
+
+    <div class="divider"></div>
+    <div id="aiOutreachOutput"></div>
+  `;
+}
+
+function renderDimensionInput(d, p) {
+  const val = (p.dimensionValues && p.dimensionValues[d.id]) || '';
+  if (d.type === 'categorical_targets' || d.type === 'categorical_open') {
+    const opts = (d.options || []).map(o => `<option value="${escapeHtml(o.value)}" ${val === o.value ? 'selected' : ''}>${escapeHtml(o.value)}</option>`).join('');
+    return `<div class="form-group"><label>${escapeHtml(d.name)}</label><select onchange="updateSitterDimension('${d.id}', this.value)"><option value="">--</option>${opts}</select></div>`;
+  }
+  if (d.type === 'numerical') {
+    return `<div class="form-group"><label>${escapeHtml(d.name)}</label><input type="number" value="${escapeHtml(val)}" oninput="updateSitterDimension('${d.id}', this.value)"></div>`;
+  }
+  return `<div class="form-group"><label>${escapeHtml(d.name)}</label><input type="text" value="${escapeHtml(val)}" oninput="updateSitterDimension('${d.id}', this.value)"></div>`;
+}
+
+function updateSitterDimension(dimId, value) {
+  if (!workingSitter.dimensionValues) workingSitter.dimensionValues = {};
+  workingSitter.dimensionValues[dimId] = value;
+}
+
+function onSitterSeriesChange() {
+  workingSitter.seriesId = document.getElementById('st_series').value;
+  document.getElementById('sitterModalBody').innerHTML = renderSitterForm(workingSitter);
+}
+
+function saveSitter() {
+  workingSitter.name = document.getElementById('st_name').value.trim();
+  if (!workingSitter.name) { showToast('Sitter name is required.', { tone: 'danger' }); return; }
+  workingSitter.pronouns = document.getElementById('st_pronouns').value;
+  workingSitter.seriesId = document.getElementById('st_series').value;
+  const newStatus = document.getElementById('st_status').value;
+  if (newStatus !== workingSitter.status) workingSitter.statusUpdatedAt = new Date().toISOString();
+  workingSitter.status = newStatus;
+  workingSitter.location = document.getElementById('st_location').value;
+  workingSitter.meetingContext = document.getElementById('st_meeting').value;
+  workingSitter.widerTruth = document.getElementById('st_widerTruth').value;
+  workingSitter.story = document.getElementById('st_story').value;
+  workingSitter.contactEmail = document.getElementById('st_email').value;
+  workingSitter.contactPhone = document.getElementById('st_phone').value;
+  workingSitter.contactSocial = document.getElementById('st_social').value;
+  workingSitter.lastContactedAt = document.getElementById('st_lastContacted').value;
+  workingSitter.lastShotAt = document.getElementById('st_lastShot').value;
+  workingSitter.preShootNotes = document.getElementById('st_preNotes').value;
+  workingSitter.release.status = document.getElementById('st_releaseStatus').value;
+  workingSitter.release.notes = document.getElementById('st_releaseNotes').value;
+  if (workingSitter.release.status === 'sent' && !workingSitter.release.sentAt) workingSitter.release.sentAt = new Date().toISOString();
+  if (workingSitter.release.status === 'signed' && !workingSitter.release.signedAt) workingSitter.release.signedAt = new Date().toISOString();
+  workingSitter.quotes = document.getElementById('st_quotes').value.split('\n').map(q => q.trim()).filter(Boolean);
+  workingSitter.updatedAt = new Date().toISOString();
+
+  if (editingSitterId) {
+    const idx = state.sitters.findIndex(p => p.id === editingSitterId);
+    if (idx >= 0) state.sitters[idx] = workingSitter;
+    logActivity('sitter_updated', 'Updated sitter: ' + workingSitter.name, 'sitter', workingSitter.id);
+  } else {
+    state.sitters.push(workingSitter);
+    logActivity('sitter_added', 'Added sitter: ' + workingSitter.name, 'sitter', workingSitter.id);
+  }
+  saveState();
+  closeModal('sitterModal');
+  renderAll();
+}
+
+function deleteSitter() {
+  if (!editingSitterId) return;
+  const p = state.sitters.find(x => x.id === editingSitterId);
+  if (!p) return;
+  const snap = JSON.parse(JSON.stringify(p));
+  state.sitters = state.sitters.filter(x => x.id !== editingSitterId);
+  logActivity('sitter_deleted', 'Deleted sitter: ' + p.name, 'sitter', editingSitterId);
+  saveState();
+  closeModal('sitterModal');
+  renderAll();
+  showToast(`Sitter "${p.name}" deleted`, {
+    undo: () => { state.sitters.push(snap); logActivity('sitter_restored', 'Restored sitter: ' + p.name, 'sitter', p.id); saveState(); renderAll(); }
+  });
+}
+
+// =====================================================
+// DEADLINE CRUD
+// =====================================================
+function openDeadlineModal(id) {
+  editingDeadlineId = id || null;
+  workingDeadline = id ? JSON.parse(JSON.stringify(state.deadlines.find(d => d.id === id))) : { id: uid('dl'), name: '', date: '', type: 'submission', relatedSeriesId: '', notes: '' };
+  document.getElementById('deadlineModalTitle').textContent = id ? 'Edit deadline' : 'New deadline';
+  document.getElementById('deadlineDeleteBtn').style.display = id ? 'inline-block' : 'none';
+  document.getElementById('deadlineModalBody').innerHTML = `
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="dl_name" value="${escapeHtml(workingDeadline.name)}" placeholder="e.g., POB Vol. 9 submission">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" id="dl_date" value="${escapeHtml(workingDeadline.date)}">
+      </div>
+      <div class="form-group">
+        <label>Type</label>
+        <select id="dl_type">
+          <option value="submission" ${workingDeadline.type === 'submission' ? 'selected' : ''}>Submission</option>
+          <option value="lab_return" ${workingDeadline.type === 'lab_return' ? 'selected' : ''}>Lab return</option>
+          <option value="shoot" ${workingDeadline.type === 'shoot' ? 'selected' : ''}>Shoot</option>
+          <option value="review" ${workingDeadline.type === 'review' ? 'selected' : ''}>Review / portfolio</option>
+          <option value="exhibition" ${workingDeadline.type === 'exhibition' ? 'selected' : ''}>Exhibition</option>
+          <option value="other" ${workingDeadline.type === 'other' ? 'selected' : ''}>Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Related series (optional)</label>
+      <select id="dl_series">
+        <option value="">-- none --</option>
+        ${state.series.map(s => `<option value="${s.id}" ${workingDeadline.relatedSeriesId === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea id="dl_notes" placeholder="Submission rules, fees, criteria...">${escapeHtml(workingDeadline.notes)}</textarea>
+    </div>
+  `;
+  document.getElementById('deadlineModal').classList.add('active');
+}
+
+function saveDeadline() {
+  workingDeadline.name = document.getElementById('dl_name').value.trim();
+  if (!workingDeadline.name) { showToast('Deadline name is required.', { tone: 'danger' }); return; }
+  workingDeadline.date = document.getElementById('dl_date').value;
+  workingDeadline.type = document.getElementById('dl_type').value;
+  workingDeadline.relatedSeriesId = document.getElementById('dl_series').value;
+  workingDeadline.notes = document.getElementById('dl_notes').value;
+
+  if (editingDeadlineId) {
+    const idx = state.deadlines.findIndex(d => d.id === editingDeadlineId);
+    if (idx >= 0) state.deadlines[idx] = workingDeadline;
+    logActivity('deadline_updated', 'Updated deadline: ' + workingDeadline.name, 'deadline', workingDeadline.id);
+  } else {
+    state.deadlines.push(workingDeadline);
+    logActivity('deadline_added', 'Added deadline: ' + workingDeadline.name, 'deadline', workingDeadline.id);
+  }
+  saveState();
+  closeModal('deadlineModal');
+  renderAll();
+}
+
+function deleteDeadline() {
+  if (!editingDeadlineId) return;
+  const d = state.deadlines.find(x => x.id === editingDeadlineId);
+  if (!d) return;
+  const snap = JSON.parse(JSON.stringify(d));
+  state.deadlines = state.deadlines.filter(x => x.id !== editingDeadlineId);
+  logActivity('deadline_deleted', 'Deleted deadline: ' + d.name, 'deadline', editingDeadlineId);
+  saveState();
+  closeModal('deadlineModal');
+  renderAll();
+  showToast(`Deadline "${d.name}" deleted`, {
+    undo: () => { state.deadlines.push(snap); saveState(); renderAll(); }
+  });
+}
+
+// =====================================================
+// SITTER VIEWS (list / kanban)
+// =====================================================
+function toggleSitterView() {
+  sitterViewMode = sitterViewMode === 'list' ? 'kanban' : 'list';
+  document.getElementById('viewToggleBtn').textContent = sitterViewMode === 'list' ? 'Kanban view' : 'List view';
+  renderSitters();
+}
+
+function renderSitters() {
+  const sf = document.getElementById('filterSitterSeries');
+  if (!sf) return;
+  const cur = sf.value;
+  sf.innerHTML = '<option value="">All series</option>' + state.series.map(s => `<option value="${s.id}" ${cur === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
+
+  const search = document.getElementById('sitterSearch').value.toLowerCase();
+  const seriesF = document.getElementById('filterSitterSeries').value;
+  const statusF = document.getElementById('filterSitterStatus').value;
+
+  let list = [...state.sitters];
+  if (search) list = list.filter(p => (p.name + ' ' + p.location + ' ' + (p.widerTruth || '') + ' ' + (p.story || '')).toLowerCase().includes(search));
+  if (seriesF) list = list.filter(p => p.seriesId === seriesF);
+  if (statusF) list = list.filter(p => p.status === statusF);
+
+  document.getElementById('sittersListView').style.display = sitterViewMode === 'list' ? 'block' : 'none';
+  document.getElementById('sittersKanbanView').style.display = sitterViewMode === 'kanban' ? 'block' : 'none';
+
+  if (sitterViewMode === 'list') renderSittersListMode(list);
+  else renderSittersKanbanMode(list);
+}
+
+function renderSittersListMode(list) {
+  const target = document.getElementById('sittersListView');
+  if (list.length === 0) {
+    target.innerHTML = '<div class="empty"><h3>No sitters match</h3><p>Adjust filters or add a new sitter.</p></div>';
+    return;
+  }
+  target.innerHTML = '<div>' + list.map(p => {
+    const series = state.series.find(s => s.id === p.seriesId);
+    return `
+      <div onclick="openSitterModal('${p.id}')" class="sitter-row">
+        <div>
+          <div class="name">${escapeHtml(p.name)}</div>
+          <div class="meta">${escapeHtml(p.location || 'no location')}${p.widerTruth ? ' · ' + escapeHtml(p.widerTruth.slice(0, 80)) + (p.widerTruth.length > 80 ? '...' : '') : ''}</div>
+        </div>
+        <div class="meta meta-col-series">${escapeHtml(series ? series.name : 'No series')}</div>
+        <div class="meta meta-col-contact" style="font-family:var(--font-mono);font-size:11px">${p.lastContactedAt ? formatDate(p.lastContactedAt) : '—'}</div>
+        <div class="right"><span class="pill pill-${p.status}"><span class="dot"></span>${escapeHtml(statusName(p.status))}</span></div>
+      </div>
+    `;
+  }).join('') + '</div>';
+}
+
+function renderSittersKanbanMode(list) {
+  const target = document.getElementById('sittersKanbanView');
+  let html = '<div class="kanban">';
+  STATUSES.forEach(s => {
+    const inCol = list.filter(p => p.status === s.id);
+    html += `
+      <div class="kanban-col">
+        <div class="kanban-col-head">
+          <span class="col-name"><span class="dot dot-${s.id}" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--status-${s.id});margin-right:6px;vertical-align:middle"></span>${s.name}</span>
+          <span class="col-count">${inCol.length}</span>
+        </div>
+        ${inCol.map(p => {
+          const series = state.series.find(x => x.id === p.seriesId);
+          return `
+            <div class="kanban-card" onclick="openSitterModal('${p.id}')">
+              <div class="card-name">${escapeHtml(p.name)}</div>
+              <div class="card-meta">${escapeHtml(p.location || '')}${series ? ' · ' + escapeHtml(series.name) : ''}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  });
+  html += '</div>';
+  target.innerHTML = html;
+}
+
+// =====================================================
+// DASHBOARD
+// =====================================================
+function renderDashboard() {
+  document.getElementById('statSeries').textContent = state.series.length;
+  document.getElementById('statSitters').textContent = state.sitters.length;
+  const byStatus = {};
+  STATUSES.forEach(s => { byStatus[s.id] = state.sitters.filter(p => p.status === s.id).length; });
+  document.getElementById('statSittersSub').textContent = `${(byStatus.shot || 0) + (byStatus.in_lab || 0)} in shoot/lab, ${byStatus.finalized || 0} finalized`;
+
+  const today = new Date();
+  const sevenDaysOut = new Date(today.getTime() + 7 * 86400000);
+  const thirtyDaysOut = new Date(today.getTime() + 30 * 86400000);
+
+  const upcomingShoots = state.deadlines.filter(d => {
+    const dt = new Date(d.date);
+    return dt >= today && dt <= sevenDaysOut && (d.type === 'shoot' || d.type === 'lab_return');
+  });
+  document.getElementById('statShoots').textContent = upcomingShoots.length;
+
+  const upcomingDeadlines = state.deadlines.filter(d => {
+    const dt = new Date(d.date);
+    return dt >= today && dt <= thirtyDaysOut && (d.type === 'submission' || d.type === 'review' || d.type === 'exhibition');
+  });
+  document.getElementById('statDeadlines').textContent = upcomingDeadlines.length;
+
+  const grid = document.getElementById('dashboardSeriesGrid');
+  if (state.series.length === 0) {
+    grid.innerHTML = '';
+    document.getElementById('dashboardSeriesEmpty').style.display = 'block';
+  } else {
+    document.getElementById('dashboardSeriesEmpty').style.display = 'none';
+    grid.innerHTML = state.series.slice(0, 6).map(s => seriesCard(s)).join('');
+  }
+
+  const upcomingDiv = document.getElementById('dashboardUpcoming');
+  const allUpcoming = state.deadlines
+    .filter(d => new Date(d.date) >= today && new Date(d.date) <= sevenDaysOut && (d.type === 'shoot' || d.type === 'lab_return'))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  upcomingDiv.innerHTML = allUpcoming.length === 0
+    ? '<div class="text-dim" style="font-style:italic;font-size:13px">Nothing on deck this week.</div>'
+    : allUpcoming.map(deadlineItem).join('');
+
+  const dlDiv = document.getElementById('dashboardDeadlines');
+  const allDl = state.deadlines
+    .filter(d => new Date(d.date) >= today && new Date(d.date) <= thirtyDaysOut && (d.type === 'submission' || d.type === 'review' || d.type === 'exhibition'))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  dlDiv.innerHTML = allDl.length === 0
+    ? '<div class="text-dim" style="font-style:italic;font-size:13px">No submission deadlines in the next 30 days.</div>'
+    : allDl.map(deadlineItem).join('');
+
+  const actDiv = document.getElementById('dashboardActivity');
+  const recent = state.activity.slice(0, 8);
+  actDiv.innerHTML = recent.length === 0
+    ? '<div class="text-dim" style="font-style:italic;padding:14px">No activity yet.</div>'
+    : recent.map(activityItem).join('');
+}
+
+function seriesCard(s) {
+  const sitters = state.sitters.filter(p => p.seriesId === s.id);
+  const finalized = sitters.filter(p => ['finalized', 'submitted', 'published'].includes(p.status)).length;
+  const target = s.targetSitterCount || 12;
+  const progress = Math.min(100, Math.round((finalized / target) * 100));
+  return `
+    <div class="series-card" onclick="openSeriesDetail('${s.id}')">
+      <div class="series-name">${escapeHtml(s.name)}</div>
+      <div class="series-thesis">${escapeHtml((s.thesis || 'No thesis yet').slice(0, 140))}${(s.thesis || '').length > 140 ? '...' : ''}</div>
+      <div class="flex-between" style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">
+        <div>${sitters.length} sitter${sitters.length === 1 ? '' : 's'}</div>
+        <div>${finalized}/${target} finalized</div>
+      </div>
+      <div class="series-progress-track"><div class="series-progress-fill" style="width:${progress}%"></div></div>
+    </div>
+  `;
+}
+
+function deadlineItem(d) {
+  const dt = new Date(d.date);
+  const day = dt.getDate();
+  const month = dt.toLocaleDateString('en-GB', { month: 'short' });
+  const series = state.series.find(s => s.id === d.relatedSeriesId);
+  return `
+    <div class="deadline-item" onclick="openDeadlineModal('${d.id}')">
+      <div class="deadline-date">
+        <span class="day">${day}</span>
+        <span class="month">${month}</span>
+      </div>
+      <div class="deadline-body">
+        <div class="deadline-name">${escapeHtml(d.name)}</div>
+        <div class="deadline-meta">${escapeHtml(typeLabel(d.type))}${series ? ' · ' + escapeHtml(series.name) : ''}</div>
+      </div>
+    </div>
+  `;
+}
+
+function typeLabel(t) {
+  return ({ submission: 'Submission deadline', lab_return: 'Lab return', shoot: 'Shoot', review: 'Portfolio review', exhibition: 'Exhibition', other: 'Other' })[t] || t;
+}
+
+// =====================================================
+// CALENDAR / ACTIVITY
+// =====================================================
+function renderCalendar() {
+  const today = new Date();
+  const upcoming = state.deadlines.filter(d => new Date(d.date) >= today).sort((a, b) => new Date(a.date) - new Date(b.date));
+  const past = state.deadlines.filter(d => new Date(d.date) < today).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const upDiv = document.getElementById('calendarUpcoming');
+  upDiv.innerHTML = upcoming.length === 0 ? '<div class="text-dim" style="font-style:italic">No upcoming events.</div>' : upcoming.map(deadlineItem).join('');
+
+  const pastDiv = document.getElementById('calendarPast');
+  pastDiv.innerHTML = past.length === 0 ? '<div class="text-dim" style="font-style:italic">No past events.</div>' : past.map(deadlineItem).join('');
+}
+
+function activityItem(a) {
+  const u = state.users.find(x => x.id === a.userId);
+  return `
+    <div class="activity-item">
+      <div class="avatar">${avatarFor(u)}</div>
+      <div style="flex:1">
+        <div>${escapeHtml(a.summary)}</div>
+        <div class="activity-meta">${escapeHtml(u ? u.name : 'Unknown')} · ${timeAgo(a.at)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderActivity() {
+  const target = document.getElementById('activityFull');
+  target.innerHTML = state.activity.length === 0
+    ? '<div class="empty"><h3>No activity yet</h3></div>'
+    : state.activity.map(activityItem).join('');
+}
+
+// =====================================================
+// SETTINGS
+// =====================================================
+function renderSettings() {
+  const u = getCurrentUser();
+  if (u) {
+    document.getElementById('setName').value = u.name || '';
+    document.getElementById('setEmail').value = u.email || '';
+    document.getElementById('setTeam').value = u.team || '';
+    document.getElementById('setRole').value = u.role || 'owner';
+  }
+  const list = document.getElementById('collaboratorsList');
+  if (state.users.length <= 1) {
+    list.innerHTML = '<div class="text-dim" style="font-style:italic;font-size:13px">No collaborators yet.</div>';
+  } else {
+    list.innerHTML = state.users.filter(u => u.id !== state.currentUserId).map(u => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div class="flex-row">
+          <div class="user-avatar">${avatarFor(u)}</div>
+          <div>
+            <div style="font-weight:500;font-size:13px">${escapeHtml(u.name)}</div>
+            <div class="text-muted" style="font-size:12px">${escapeHtml(u.email || '')} · ${escapeHtml(u.role)}</div>
+          </div>
+        </div>
+        <button class="btn-sm btn-danger" onclick="removeCollaborator('${u.id}')">Remove</button>
+      </div>
+    `).join('');
+  }
+  document.getElementById('apiKey').value = state.settings.apiKey || '';
+  document.getElementById('apiModel').value = state.settings.apiModel || 'claude-opus-4-6';
+  updateApiStatusPill();
+}
+
+function removeCollaborator(uid) {
+  const u = state.users.find(x => x.id === uid);
+  if (!u) return;
+  const snap = JSON.parse(JSON.stringify(u));
+  state.users = state.users.filter(x => x.id !== uid);
+  logActivity('user_removed', 'Removed collaborator ' + u.name, 'user', uid);
+  saveState();
+  renderAll();
+  showToast(`Collaborator "${u.name}" removed`, {
+    undo: () => { state.users.push(snap); saveState(); renderAll(); }
+  });
+}
+
+// =====================================================
+// CLAUDE API (streaming + prompt caching)
+// =====================================================
+function getApiSettings() {
+  return { key: state.settings.apiKey || '', model: state.settings.apiModel || 'claude-opus-4-6' };
+}
+
+function saveApiSettings() {
+  state.settings.apiKey = document.getElementById('apiKey').value.trim();
+  state.settings.apiModel = document.getElementById('apiModel').value;
+  saveState();
+  updateApiStatusPill();
+  const r = document.getElementById('apiTestResult');
+  r.textContent = 'Saved.';
+  r.style.color = 'var(--success)';
+  setTimeout(() => { r.textContent = ''; }, 3000);
+}
+
+function clearApiKey() {
+  if (!confirm('Clear the saved API key from this browser?')) return;
+  state.settings.apiKey = '';
+  saveState();
+  document.getElementById('apiKey').value = '';
+  updateApiStatusPill();
+}
+
+function updateApiStatusPill() {
+  const pill = document.getElementById('apiStatusPill');
+  if (!pill) return;
+  const k = (state.settings.apiKey || '').trim();
+  const ok = k && k.startsWith('sk-ant-');
+  pill.textContent = ok ? 'Configured' : 'Not configured';
+  pill.classList.toggle('pill-agreed', !!ok);
+  pill.classList.toggle('pill-prospect', !ok);
+}
+
+async function testApiConnection() {
+  const { key, model } = getApiSettings();
+  const r = document.getElementById('apiTestResult');
+  if (!key) { r.textContent = 'Enter and save an API key first.'; r.style.color = 'var(--danger)'; return; }
+  r.textContent = 'Testing...'; r.style.color = 'var(--text-dim)';
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'content-type': 'application/json' },
+      body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'Reply with the single word: ok' }] })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+    if (data.content?.[0]?.text) {
+      r.textContent = 'Connected. Responded: "' + data.content[0].text.trim() + '"';
+      r.style.color = 'var(--success)';
+    } else throw new Error('Unexpected response');
+  } catch (e) {
+    r.textContent = 'Error: ' + e.message;
+    r.style.color = 'var(--danger)';
+  }
+}
+
+// Non-streaming call with prompt caching on the system block.
+async function callClaude(systemPrompt, userMessage, maxTokens) {
+  const { key, model } = getApiSettings();
+  if (!key) throw new Error('API key not set. Open Settings to configure.');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens || 1500,
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: userMessage }]
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+  if (!data.content?.[0]?.text) throw new Error('Unexpected response');
+  return data.content[0].text;
+}
+
+// Streaming call. Calls onChunk(deltaText, fullText) as text arrives.
+async function callClaudeStream(systemPrompt, userMessage, { maxTokens = 1500, onChunk } = {}) {
+  const { key, model } = getApiSettings();
+  if (!key) throw new Error('API key not set. Open Settings to configure.');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      stream: true,
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: userMessage }]
+    })
+  });
+  if (!res.ok) {
+    let msg = 'HTTP ' + res.status;
+    try { const j = await res.json(); msg = j.error?.message || msg; } catch {}
+    throw new Error(msg);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      try {
+        const evt = JSON.parse(payload);
+        if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+          const t = evt.delta.text || '';
+          full += t;
+          if (onChunk) onChunk(t, full);
+        } else if (evt.type === 'message_stop') {
+          // done
+        } else if (evt.type === 'error') {
+          throw new Error(evt.error?.message || 'Stream error');
+        }
+      } catch (e) {
+        if (e instanceof SyntaxError) continue;
+        throw e;
+      }
+    }
+  }
+  return full;
+}
+
+async function aiGapAnalysis(seriesId) {
+  const s = state.series.find(x => x.id === seriesId);
+  if (!s) return;
+  const sitters = state.sitters.filter(p => p.seriesId === seriesId);
+  const out = document.getElementById('gapAnalysisOutput');
+  const btn = document.getElementById('gapAnalysisBtn');
+  if (!btn) return;
+  const orig = btn.textContent;
+  btn.textContent = 'Analyzing...'; btn.disabled = true;
+  out.innerHTML = '<div class="ai-stream" id="aiStreamBody"></div>';
+  const body = document.getElementById('aiStreamBody');
+
+  try {
+    const sys = `You are an expert documentary photography editor and project mentor. You help photographers identify structural gaps in their long-term projects so the body of work stays balanced, representative, and faithful to its stated thesis.
+
+Be concrete, kind, and specific. Use the photographer's own language. Suggest concrete sitter types or settings to add (with examples), name the dimension(s) where the gap is, and prioritize the top 3 to 5 gaps.
+
+Output as plain prose, no JSON, no markdown headers, around 200 to 350 words. Use short paragraphs.`;
+
+    let user = 'SERIES NAME: ' + s.name + '\n\n';
+    user += 'SERIES THESIS: ' + (s.thesis || '[no thesis]') + '\n\n';
+    user += 'TARGET SITTER COUNT: ' + (s.targetSitterCount || 12) + '\n';
+    user += 'CURRENT SITTER COUNT: ' + sitters.length + '\n';
+    if (s.outputGoals) user += 'OUTPUT GOALS: ' + s.outputGoals + '\n';
+    user += '\nDIMENSIONS THE PHOTOGRAPHER IS TRACKING:\n';
+    (s.dimensions || []).forEach(d => {
+      user += '- ' + d.name + ' (type: ' + d.type + ')';
+      if (d.description) user += ' [why: ' + d.description + ']';
+      if (d.type === 'categorical_targets') {
+        user += '\n  Targets and current actuals:\n';
+        (d.options || []).forEach(o => {
+          const actual = sitters.filter(p => p.dimensionValues && p.dimensionValues[d.id] === o.value).length;
+          user += '    - ' + o.value + ': actual ' + actual + ' / target ' + (o.target || 0) + '\n';
+        });
+      } else if (d.type === 'categorical_open') {
+        const counts = {};
+        sitters.forEach(p => { const v = p.dimensionValues && p.dimensionValues[d.id]; if (v) counts[v] = (counts[v] || 0) + 1; });
+        user += '\n  Distribution: ' + JSON.stringify(counts) + '\n';
+      } else if (d.type === 'numerical') {
+        const vals = sitters.map(p => parseFloat(p.dimensionValues && p.dimensionValues[d.id])).filter(v => !isNaN(v));
+        user += '\n  Values: ' + vals.join(', ') + '\n';
+      } else { user += '\n'; }
+    });
+    user += '\nCURRENT SITTERS (brief):\n';
+    sitters.forEach(p => {
+      user += '- ' + p.name + ' (' + (p.location || 'no location') + ', status: ' + p.status + '): ' + (p.widerTruth || 'no wider truth set').slice(0, 120) + '\n';
+    });
+    user += '\nTask: Identify the top 3 to 5 structural gaps in this series. For each gap, name the dimension(s) involved, explain why it matters given the thesis, and suggest 1 to 2 concrete sitter types or settings the photographer could add.';
+
+    await callClaudeStream(sys, user, {
+      maxTokens: 1200,
+      onChunk: (_, full) => { body.textContent = full; }
+    });
+    body.classList.add('done');
+  } catch (e) {
+    out.innerHTML = '<div style="color:var(--danger);font-size:13px">Error: ' + escapeHtml(e.message) + '</div>';
+  } finally {
+    btn.textContent = orig; btn.disabled = false;
+  }
+}
+
+async function aiStoryCoach() {
+  if (!workingSitter) return;
+  if (!workingSitter.name || !workingSitter.story) {
+    showToast('Add a name and story before running the story coach.', { tone: 'danger' });
+    return;
+  }
+  const series = state.series.find(s => s.id === workingSitter.seriesId);
+  const btn = document.getElementById('aiCoachBtn');
+  const orig = btn.textContent;
+  btn.textContent = 'Coaching...'; btn.disabled = true;
+
+  try {
+    const sys = `You help documentary photographers articulate the WIDER TRUTH a single sitter exemplifies. Given the sitter's story and the series thesis, write a single sentence (max 30 words) that captures what wider truth this sitter carries. The sentence should:
+- Be specific, not generic.
+- Tie to the series thesis.
+- Avoid abstractions like "the human condition." Name the actual social, political, or cultural reality.
+- Be in the photographer's own voice (first person if useful).
+
+Output ONLY the sentence. No preamble, no explanation.`;
+
+    let user = '';
+    if (series) {
+      user += 'SERIES: ' + series.name + '\n';
+      user += 'THESIS: ' + (series.thesis || '[no thesis]') + '\n\n';
+    }
+    user += 'SITTER NAME: ' + workingSitter.name + '\n';
+    user += 'LOCATION: ' + (workingSitter.location || '[unknown]') + '\n';
+    user += 'STORY: ' + workingSitter.story + '\n';
+    if (workingSitter.widerTruth) user += '\nCURRENT WIDER TRUTH: ' + workingSitter.widerTruth + '\n(rewrite to be sharper)';
+
+    const text = await callClaude(sys, user, 200);
+    document.getElementById('st_widerTruth').value = text.trim();
+    workingSitter.widerTruth = text.trim();
+    showToast('Wider truth refined.');
+  } catch (e) {
+    showToast('Story coach failed: ' + e.message, { tone: 'danger' });
+  } finally {
+    btn.textContent = orig; btn.disabled = false;
+  }
+}
+
+async function aiOutreach() {
+  if (!workingSitter) return;
+  if (!workingSitter.name) { showToast('Add the sitter name first.', { tone: 'danger' }); return; }
+  const series = state.series.find(s => s.id === workingSitter.seriesId);
+  const btn = document.getElementById('aiOutreachBtn');
+  const orig = btn.textContent;
+  btn.textContent = 'Drafting...'; btn.disabled = true;
+
+  try {
+    const sys = `You draft warm, respectful first-contact outreach messages from a documentary photographer to a potential sitter. The tone is:
+- Personal, never transactional.
+- Project-rationale-led, not portfolio-led.
+- Honest about why you want to photograph THIS person.
+- Brief: 80 to 150 words.
+- Closing with a low-pressure ask (a 20-minute conversation, not a shoot date).
+
+Use the photographer's voice (first person). No marketing speak. No fluff.`;
+
+    let user = '';
+    if (series) {
+      user += 'PROJECT: ' + series.name + '\n';
+      user += 'PROJECT THESIS: ' + (series.thesis || '[no thesis]') + '\n\n';
+    }
+    user += 'SITTER NAME: ' + workingSitter.name + '\n';
+    user += 'WHERE THEY LIVE: ' + (workingSitter.location || '[unknown]') + '\n';
+    user += 'HOW WE FOUND/MET THEM: ' + (workingSitter.meetingContext || '[unknown]') + '\n';
+    user += 'WHY WE WANT TO PHOTOGRAPH THEM (wider truth): ' + (workingSitter.widerTruth || '[not set]') + '\n';
+    user += 'THEIR STORY (background): ' + (workingSitter.story || '[no story yet]') + '\n\n';
+    user += 'PHOTOGRAPHER CONTEXT: Mexican-American/Texan photographer raising a son in England with a British wife. First-time documentary work in the UK. Member of British Journal of Photography.\n\n';
+    user += 'Draft the outreach message. Output ONLY the message body, no subject line, no signature, no quotation marks around it.';
+
+    const text = await callClaude(sys, user, 400);
+    workingSitter.aiOutreach = text.trim();
+    document.getElementById('aiOutreachOutput').innerHTML = `
+      <div class="gap-suggestion">
+        <div class="gap-title">AI outreach draft</div>
+        <div class="ai-stream done" style="background:transparent;border:0;padding:0">${escapeHtml(text.trim())}</div>
+        <div style="margin-top:10px"><button class="btn-sm" onclick="copyOutreach()">Copy to clipboard</button></div>
+      </div>
+    `;
+  } catch (e) {
+    showToast('Outreach draft failed: ' + e.message, { tone: 'danger' });
+  } finally {
+    btn.textContent = orig; btn.disabled = false;
+  }
+}
+
+function copyOutreach() {
+  if (!workingSitter || !workingSitter.aiOutreach) return;
+  navigator.clipboard.writeText(workingSitter.aiOutreach).then(
+    () => showToast('Outreach copied to clipboard.'),
+    () => showToast('Could not copy.', { tone: 'danger' })
+  );
+}
+
+// =====================================================
+// TOASTS (with undo)
+// =====================================================
+function showToast(msg, opts = {}) {
+  const stack = document.getElementById('toastStack');
+  if (!stack) return;
+  const { undo, duration = 5000, tone } = opts;
+  const el = document.createElement('div');
+  el.className = 'toast' + (tone ? ' toast-' + tone : '');
+  el.innerHTML = `
+    <div class="toast-msg">${escapeHtml(msg)}</div>
+    ${undo ? '<button class="toast-undo">Undo</button>' : ''}
+    <button class="toast-close" aria-label="Close">×</button>
+  `;
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    el.classList.add('leaving');
+    setTimeout(() => el.remove(), 180);
+  };
+  if (undo) {
+    el.querySelector('.toast-undo').onclick = () => {
+      try { undo(); } catch (e) { console.error(e); }
+      dismiss();
+    };
+  }
+  el.querySelector('.toast-close').onclick = dismiss;
+  stack.appendChild(el);
+  if (duration > 0) setTimeout(dismiss, duration);
+}
+
+// =====================================================
+// COMMAND PALETTE
+// =====================================================
+let cmdkActiveIdx = 0;
+let cmdkResults = [];
+
+function buildCommands() {
+  const cmds = [
+    { section: 'Create', label: 'New series', icon: 'plus', run: () => openSeriesModal() },
+    { section: 'Create', label: 'New sitter', icon: 'plus', run: () => openSitterModal() },
+    { section: 'Create', label: 'New deadline', icon: 'plus', run: () => openDeadlineModal() },
+    { section: 'Navigate', label: 'Go to Dashboard', icon: 'arrow', run: () => switchTab('dashboard') },
+    { section: 'Navigate', label: 'Go to Series', icon: 'arrow', run: () => switchTab('series') },
+    { section: 'Navigate', label: 'Go to Sitters', icon: 'arrow', run: () => switchTab('sitters') },
+    { section: 'Navigate', label: 'Go to Calendar', icon: 'arrow', run: () => switchTab('calendar') },
+    { section: 'Navigate', label: 'Go to Activity', icon: 'arrow', run: () => switchTab('activity') },
+    { section: 'Navigate', label: 'Go to Settings', icon: 'arrow', run: () => switchTab('settings') },
+    { section: 'Actions', label: 'Toggle theme (dark / light)', icon: 'theme', run: toggleTheme },
+    { section: 'Actions', label: 'Export data to JSON', icon: 'arrow', run: exportData },
+    { section: 'Actions', label: 'Seed demo data', icon: 'arrow', run: seedDemoData }
+  ];
+  state.series.forEach(s => cmds.push({ section: 'Open series', label: s.name, icon: 'doc', run: () => openSeriesDetail(s.id) }));
+  state.sitters.forEach(p => {
+    const series = state.series.find(x => x.id === p.seriesId);
+    cmds.push({ section: 'Open sitter', label: p.name, meta: series ? series.name : '', icon: 'user', run: () => openSitterModal(p.id) });
+  });
+  return cmds;
+}
+
+function openCmdK() {
+  const modal = document.getElementById('cmdkModal');
+  if (!modal) return;
+  modal.classList.add('active');
+  const input = document.getElementById('cmdkInput');
+  input.value = '';
+  cmdkActiveIdx = 0;
+  renderCmdK('');
+  setTimeout(() => input.focus(), 10);
+}
+
+function closeCmdK() {
+  const modal = document.getElementById('cmdkModal');
+  if (modal) modal.classList.remove('active');
+}
+
+function renderCmdK(query) {
+  const list = document.getElementById('cmdkList');
+  const all = buildCommands();
+  const q = (query || '').toLowerCase().trim();
+  cmdkResults = q
+    ? all.filter(c => (c.label + ' ' + c.section + ' ' + (c.meta || '')).toLowerCase().includes(q))
+    : all;
+  if (cmdkActiveIdx >= cmdkResults.length) cmdkActiveIdx = 0;
+  if (cmdkResults.length === 0) {
+    list.innerHTML = '<div class="cmdk-empty">No commands match.</div>';
+    return;
+  }
+  // group by section
+  let html = '';
+  let lastSection = null;
+  cmdkResults.forEach((c, i) => {
+    if (c.section !== lastSection) {
+      html += `<div class="cmdk-section-title">${escapeHtml(c.section)}</div>`;
+      lastSection = c.section;
+    }
+    html += `
+      <div class="cmdk-item ${i === cmdkActiveIdx ? 'active' : ''}" data-idx="${i}" onclick="runCmdK(${i})">
+        ${cmdkIcon(c.icon)}
+        <div>${escapeHtml(c.label)}</div>
+        <div class="cmdk-spacer"></div>
+        ${c.meta ? '<div class="cmdk-meta">' + escapeHtml(c.meta) + '</div>' : ''}
+      </div>
+    `;
+  });
+  list.innerHTML = html;
+  const active = list.querySelector('.cmdk-item.active');
+  if (active) active.scrollIntoView({ block: 'nearest' });
+}
+
+function cmdkIcon(name) {
+  const icons = {
+    plus: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    arrow: '<svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    theme: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    doc: '<svg viewBox="0 0 24 24" fill="none"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 3v6h6" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+    user: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M4 21a8 8 0 0 1 16 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
+  };
+  return icons[name] || icons.arrow;
+}
+
+function runCmdK(idx) {
+  const c = cmdkResults[idx];
+  if (!c) return;
+  closeCmdK();
+  setTimeout(() => c.run(), 50);
+}
+
+function setupCmdK() {
+  const input = document.getElementById('cmdkInput');
+  if (!input) return;
+  input.addEventListener('input', () => { cmdkActiveIdx = 0; renderCmdK(input.value); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (cmdkActiveIdx < cmdkResults.length - 1) { cmdkActiveIdx++; renderCmdK(input.value); } }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (cmdkActiveIdx > 0) { cmdkActiveIdx--; renderCmdK(input.value); } }
+    else if (e.key === 'Enter') { e.preventDefault(); runCmdK(cmdkActiveIdx); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeCmdK(); }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      const open = document.getElementById('cmdkModal').classList.contains('active');
+      if (open) closeCmdK(); else openCmdK();
+    }
+  });
+
+  // Click backdrop to close
+  document.getElementById('cmdkModal').addEventListener('click', (e) => {
+    if (e.target.id === 'cmdkModal') closeCmdK();
+  });
+}
+
+// =====================================================
+// EXPORT / IMPORT / WIPE
+// =====================================================
+function exportData() {
+  const data = JSON.stringify(state, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const stamp = new Date().toISOString().split('T')[0];
+  a.download = 'field_studio_' + stamp + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.users || !data.series || !data.sitters) throw new Error('Invalid file format');
+      if (confirm('Replace all current data with imported data?')) {
+        state = data;
+        if (!state.settings) state.settings = { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'dark' };
+        if (!state.settings.theme) state.settings.theme = 'dark';
+        saveState();
+        applyTheme(state.settings.theme);
+        renderAll();
+        showToast('Imported.');
+      }
+    } catch (err) { showToast('Import failed: ' + err.message, { tone: 'danger' }); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function wipeData() {
+  if (!confirm('Permanently delete all data? This cannot be undone.')) return;
+  if (!confirm('Are you absolutely sure?')) return;
+  const userId = uid('u');
+  state = {
+    version: '1.1',
+    currentUserId: userId,
+    users: [{ id: userId, name: 'Matthew', email: 'mjfloxx@gmail.com', team: 'Solo', role: 'owner' }],
+    series: [], sitters: [], deadlines: [], activity: [],
+    settings: { apiKey: '', apiModel: 'claude-opus-4-6', theme: state.settings?.theme || 'dark' }
+  };
+  saveState();
+  renderAll();
+  showToast('All data wiped.');
+}
+
+// =====================================================
+// DEMO DATA SEED
+// =====================================================
+function seedDemoData() {
+  if (state.series.length > 0 || state.sitters.length > 0) {
+    if (!confirm('Seed will add demo series and sitters on top of existing data. Continue?')) return;
+  }
+  const u = getCurrentUser();
+  const now = new Date().toISOString();
+
+  const s1 = {
+    id: uid('s'),
+    ownerId: u.id, collaboratorIds: [],
+    name: 'Latinos in the UK',
+    thesis: 'A documentary series on first and second generation Latinx people across the United Kingdom. The project asks what it means to be British and Latinx at this moment, against the backdrop of tightening migration policy, mixed-heritage childhoods, and the everyday cultural translation that defines diaspora life.',
+    targetSitterCount: 12,
+    targetCompletionDate: '2026-08-01',
+    outputGoals: 'POB Vol. 9 + microsite + zine',
+    visualStyleNotes: 'Environmental portraits in sitter spaces, available natural light, 35mm color, classical straightforward portrait grammar.',
+    dimensions: [
+      { id: uid('d'), name: 'Generation', type: 'categorical_targets', description: 'Mix of generational experiences in the UK.',
+        options: [
+          { value: '1st gen (born outside UK)', target: 4 },
+          { value: '2nd gen (born in UK)', target: 4 },
+          { value: 'Mixed heritage', target: 4 }
+        ] },
+      { id: uid('d'), name: 'City', type: 'categorical_targets', description: 'Distribute across UK regions, not just London.',
+        options: [
+          { value: 'London', target: 3 },
+          { value: 'Manchester', target: 2 },
+          { value: 'Edinburgh', target: 2 },
+          { value: 'Cardiff', target: 2 },
+          { value: 'Brighton', target: 2 },
+          { value: 'Other', target: 1 }
+        ] },
+      { id: uid('d'), name: 'Country of origin', type: 'categorical_open', description: 'Latinx is broad. Track which countries are represented.',
+        options: [
+          { value: 'Mexico', target: 0 }, { value: 'Colombia', target: 0 },
+          { value: 'Venezuela', target: 0 }, { value: 'Brazil', target: 0 },
+          { value: 'Argentina', target: 0 }, { value: 'El Salvador', target: 0 },
+          { value: 'Peru', target: 0 }
+        ] },
+      { id: uid('d'), name: 'Age', type: 'numerical', description: 'Age at time of shoot.', options: [] }
+    ],
+    createdAt: now, updatedAt: now
+  };
+
+  const s2 = {
+    id: uid('s'),
+    ownerId: u.id, collaboratorIds: [],
+    name: 'Basketball Life UK',
+    thesis: 'A documentary series on UK street basketball culture: the players, coaches, and courts that make grassroots ball in this country.',
+    targetSitterCount: 10,
+    targetCompletionDate: '2026-08-01',
+    outputGoals: 'POB Vol. 9 + court atlas microsite',
+    visualStyleNotes: 'Court environmental portraits, low golden-hour light, vertical 2:3 crops.',
+    dimensions: [
+      { id: uid('d'), name: 'Role', type: 'categorical_targets', description: 'Players, coaches, fans, court regulars.',
+        options: [
+          { value: 'Player', target: 5 },
+          { value: 'Coach', target: 2 },
+          { value: 'Court regular / community', target: 3 }
+        ] },
+      { id: uid('d'), name: 'Court / location', type: 'categorical_open', description: 'Track which courts are represented.',
+        options: [
+          { value: 'Brixton', target: 0 }, { value: 'Westway', target: 0 },
+          { value: 'Stockwell', target: 0 }, { value: 'Manchester', target: 0 },
+          { value: 'Edinburgh', target: 0 }, { value: 'Birmingham', target: 0 }
+        ] }
+    ],
+    createdAt: now, updatedAt: now
+  };
+
+  state.series.push(s1, s2);
+
+  const sitters = [
+    { seriesId: s1.id, name: 'Maria Gonzalez', pronouns: 'she/her', location: 'Hackney, London',
+      meetingContext: 'Introduced by friend at Levantine Foods, Stoke Newington',
+      widerTruth: 'Migration as everyday labor: a Salvadoran mother running a catering business from her flat to send remittances home.',
+      story: 'Maria, 47, arrived in London from El Salvador in 2007. Runs a catering business from her flat. Sends money back to her mother and son monthly.',
+      status: 'shot', lastContactedAt: '2026-01-12', lastShotAt: '2026-02-08', contactEmail: 'maria@example.com',
+      release: { status: 'signed', sentAt: '2026-01-15', signedAt: '2026-01-20', notes: 'Hard copy in studio drawer' },
+      dimensionValues: { [s1.dimensions[0].id]: '1st gen (born outside UK)', [s1.dimensions[1].id]: 'London', [s1.dimensions[2].id]: 'El Salvador', [s1.dimensions[3].id]: '47' },
+      quotes: ['I came here for my mother. Now I cook for my mother.'] },
+    { seriesId: s1.id, name: 'Carlos Mendez', pronouns: 'he/him', location: 'Moss Side, Manchester',
+      meetingContext: 'Cold contacted via Manchester Latin American Festival',
+      widerTruth: 'Working-class Latinx labor in post-industrial England.',
+      story: 'Carlos, 32, second-generation Colombian. Born in Manchester to parents who arrived in the late 80s.',
+      status: 'agreed', lastContactedAt: '2026-03-04', contactEmail: 'carlos@example.com',
+      release: { status: 'sent', sentAt: '2026-03-04', signedAt: '', notes: '' },
+      dimensionValues: { [s1.dimensions[0].id]: '2nd gen (born in UK)', [s1.dimensions[1].id]: 'Manchester', [s1.dimensions[2].id]: 'Colombia', [s1.dimensions[3].id]: '32' },
+      quotes: [] },
+    { seriesId: s1.id, name: 'Ana Rivera', pronouns: 'she/her', location: 'Cardiff Bay, Cardiff',
+      meetingContext: 'Friend of a friend; introduced at a pop-up Mexican supper club',
+      widerTruth: 'Welsh-Latinx identity in a country where the conversation about belonging usually skips them entirely.',
+      story: 'Ana, 28, second-generation Venezuelan-Welsh. Speaks Welsh fluently. Teaches in a Welsh-medium primary school.',
+      status: 'contacted', lastContactedAt: '2026-03-20',
+      release: { status: 'not_sent', sentAt: '', signedAt: '', notes: '' },
+      dimensionValues: { [s1.dimensions[0].id]: '2nd gen (born in UK)', [s1.dimensions[1].id]: 'Cardiff', [s1.dimensions[2].id]: 'Venezuela', [s1.dimensions[3].id]: '28' },
+      quotes: [] },
+    { seriesId: s1.id, name: 'Diego Castillo', pronouns: 'he/him', location: 'Edinburgh',
+      meetingContext: 'Reached out via Edinburgh Latin American Society',
+      widerTruth: 'Latinx in Scotland as the smallest sub-population in the UK Latinx diaspora.',
+      story: 'Diego, 41, first-gen Mexican. Software engineer. Moved to Edinburgh in 2014 for a job.',
+      status: 'prospect',
+      release: { status: 'not_sent', sentAt: '', signedAt: '', notes: '' },
+      dimensionValues: { [s1.dimensions[0].id]: '1st gen (born outside UK)', [s1.dimensions[1].id]: 'Edinburgh', [s1.dimensions[2].id]: 'Mexico', [s1.dimensions[3].id]: '41' },
+      quotes: [] },
+    { seriesId: s1.id, name: 'Ethan Flores', pronouns: 'he/him', location: 'Your home, England',
+      meetingContext: 'My son',
+      widerTruth: 'A bicultural childhood in Britain: half-Texan, half-British, with Mexican-American roots.',
+      story: 'My son. The whole project sits inside this question.',
+      status: 'finalized', lastContactedAt: '2026-03-15', lastShotAt: '2026-03-15',
+      release: { status: 'signed', sentAt: '', signedAt: '2026-03-15', notes: 'Permission as parent and guardian.' },
+      dimensionValues: { [s1.dimensions[0].id]: 'Mixed heritage', [s1.dimensions[1].id]: 'Other', [s1.dimensions[2].id]: 'Mexico', [s1.dimensions[3].id]: '4' },
+      quotes: [] },
+    { seriesId: s2.id, name: 'Marcus Brown', pronouns: 'he/him', location: 'Brixton, London',
+      meetingContext: 'Court regular at Brockwell Park courts',
+      widerTruth: 'Black British basketball culture as a parallel sporting tradition in a football-dominated country.',
+      story: 'Marcus, 24, plays daily at Brockwell. Coaches under-16s at a community club.',
+      status: 'scheduled', lastContactedAt: '2026-03-22',
+      release: { status: 'sent', sentAt: '2026-03-22', signedAt: '', notes: '' },
+      dimensionValues: { [s2.dimensions[0].id]: 'Player', [s2.dimensions[1].id]: 'Brixton' },
+      quotes: [] },
+    { seriesId: s2.id, name: 'Jamal Patel', pronouns: 'he/him', location: 'Westway, London',
+      meetingContext: 'Met during a pickup game',
+      widerTruth: 'Mixed-heritage British-Indian player carrying basketball as a non-cricket, non-football identity.',
+      story: 'Jamal, 19, plays Westway most evenings. Aspires to NCAA.',
+      status: 'prospect',
+      release: { status: 'not_sent', sentAt: '', signedAt: '', notes: '' },
+      dimensionValues: { [s2.dimensions[0].id]: 'Player', [s2.dimensions[1].id]: 'Westway' },
+      quotes: [] }
+  ];
+
+  sitters.forEach(s => {
+    state.sitters.push({ ...emptySitter(s.seriesId), ...s, id: uid('p'), addedByUserId: u.id, ownerId: u.id });
+  });
+
+  const future = (days) => {
+    const d = new Date(); d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+  };
+  state.deadlines.push(
+    { id: uid('dl'), name: 'POB Vol. 9 submission window opens', date: future(21), type: 'submission', relatedSeriesId: s1.id, notes: 'British Journal of Photography Portrait of Britain Vol. 9.' },
+    { id: uid('dl'), name: 'POB Vol. 9 submission deadline', date: future(56), type: 'submission', relatedSeriesId: s1.id, notes: '' },
+    { id: uid('dl'), name: 'Maria re-shoot at her catering kitchen', date: future(10), type: 'shoot', relatedSeriesId: s1.id, notes: 'Second visit.' },
+    { id: uid('dl'), name: 'Roll 047 (Maria first shoot) lab return', date: future(3), type: 'lab_return', relatedSeriesId: s1.id, notes: 'Sent to North London Film Lab' },
+    { id: uid('dl'), name: 'Marcus shoot at Brockwell', date: future(7), type: 'shoot', relatedSeriesId: s2.id, notes: '' }
+  );
+
+  logActivity('demo_seeded', 'Seeded demo data (2 series, 7 sitters, 5 deadlines)', 'system', '');
+  saveState();
+  renderAll();
+  showToast('Demo data added. Open Series → Latinos in the UK to see coverage.');
+}
+
+// =====================================================
+// RENDER ALL
+// =====================================================
+function renderAll() {
+  const u = getCurrentUser();
+  if (u) {
+    const nameEl = document.getElementById('userName');
+    const teamEl = document.getElementById('userTeam');
+    const avEl = document.getElementById('userAvatar');
+    if (nameEl) nameEl.textContent = u.name || 'You';
+    if (teamEl) teamEl.textContent = u.team || 'Solo';
+    if (avEl) avEl.textContent = avatarFor(u);
+  }
+  renderDashboard();
+  renderSeriesPanel();
+  renderSitters();
+  renderCalendar();
+  renderActivity();
+  renderSettings();
+}
+
+function renderSeriesPanel() {
+  const grid = document.getElementById('seriesGrid');
+  if (state.series.length === 0) {
+    grid.innerHTML = '';
+    document.getElementById('seriesEmpty').style.display = 'block';
+  } else {
+    document.getElementById('seriesEmpty').style.display = 'none';
+    grid.innerHTML = state.series.map(s => seriesCard(s)).join('');
+  }
+}
+
+// =====================================================
+// INIT
+// =====================================================
+document.addEventListener('DOMContentLoaded', () => {
+  applyTheme(state.settings.theme || 'dark');
+
+  // Nav
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.addEventListener('click', () => switchTab(el.dataset.tab));
+  });
+
+  // Sitter filters
+  document.getElementById('sitterSearch').addEventListener('input', renderSitters);
+  document.getElementById('filterSitterSeries').addEventListener('change', renderSitters);
+  document.getElementById('filterSitterStatus').addEventListener('change', renderSitters);
+
+  setupCmdK();
+  switchTab('dashboard');
+  renderAll();
+});
