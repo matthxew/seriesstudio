@@ -52,6 +52,7 @@ function uid(prefix) {
 // live in localStorage state on the entity that owns them.
 // =====================================================
 const ATT_DB_NAME = 'field_studio_attachments';
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB per-file cap on attachments + moodboard images
 const ATT_STORE = 'blobs';
 let _attDbPromise = null;
 
@@ -154,7 +155,7 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (!parsed.settings) parsed.settings = { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'light' };
+      if (!parsed.settings) parsed.settings = { apiKey: '', apiModel: 'claude-opus-4-7', theme: 'light' };
       if (!parsed.settings.theme) parsed.settings.theme = 'light';
       // One-time migration: anything older than 1.2 defaulted to dark.
       // Flip to light unless the user explicitly toggled (themeUserSet).
@@ -182,7 +183,7 @@ function loadState() {
     deadlines: [],
     templates: [],
     activity: [],
-    settings: { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'light' }
+    settings: { apiKey: '', apiModel: 'claude-opus-4-7', theme: 'light' }
   };
 }
 
@@ -945,6 +946,7 @@ async function addSubjectAttachment() {
   if (!files.length) return;
   if (!workingSitter.attachments) workingSitter.attachments = [];
   for (const file of files) {
+    if (file.size > MAX_UPLOAD_BYTES) { showToast(`"${file.name}" is ${fmtFileSize(file.size)}, over the ${fmtFileSize(MAX_UPLOAD_BYTES)} limit.`, { tone: 'danger' }); continue; }
     try {
       const id = await attPut(file, { ownerType: 'sitter', ownerId: workingSitter.id, name: file.name, mime: file.type, size: file.size });
       workingSitter.attachments.push({ id, name: file.name, mime: file.type, size: file.size, addedAt: new Date().toISOString() });
@@ -953,16 +955,21 @@ async function addSubjectAttachment() {
   refreshAttachmentsListUI();
 }
 
-async function removeAttachmentFrom(ctx, attId) {
+async function removeAttachmentFrom(ctx, attId, ownerId) {
   if (ctx === 'subject') {
     if (!workingSitter || !workingSitter.attachments) return;
     workingSitter.attachments = workingSitter.attachments.filter(a => a.id !== attId);
     try { await attDelete(attId); } catch (_) {}
     refreshAttachmentsListUI();
   } else if (ctx === 'moodboard') {
-    if (!workingSeries || !workingSeries.moodboard) return;
-    workingSeries.moodboard = workingSeries.moodboard.filter(a => a.id !== attId);
+    const seriesId = ownerId || detailSeriesId;
+    if (!seriesId) return;
+    const s = state.series.find(x => x.id === seriesId);
+    if (!s || !s.moodboard) return;
+    s.moodboard = s.moodboard.filter(a => a.id !== attId);
+    s.updatedAt = new Date().toISOString();
     try { await attDelete(attId); } catch (_) {}
+    saveState();
     refreshMoodboardUI();
   }
 }
@@ -980,7 +987,7 @@ function renderMoodboard(s) {
   return '<div class="moodboard-grid">' + items.map(m => `
     <div class="moodboard-tile" onclick="attOpen('${m.id}')" title="${escapeHtml(m.name)} — click to open">
       <img data-att-id="${m.id}" alt="${escapeHtml(m.name)}" />
-      <button class="moodboard-remove" onclick="event.stopPropagation();removeAttachmentFrom('moodboard', '${m.id}')" title="Remove">×</button>
+      <button class="moodboard-remove" onclick="event.stopPropagation();removeAttachmentFrom('moodboard', '${m.id}', '${s.id}')" title="Remove">×</button>
     </div>
   `).join('') + '</div>';
 }
@@ -998,12 +1005,12 @@ async function hydrateMoodboardThumbs() {
 async function addMoodboardImages(seriesId) {
   const s = state.series.find(x => x.id === seriesId);
   if (!s) return;
-  workingSeries = s; // so removeAttachmentFrom('moodboard', id) finds it
   const files = await pickFiles({ accept: 'image/*', multiple: true });
   if (!files.length) return;
   if (!s.moodboard) s.moodboard = [];
   for (const file of files) {
     if (!file.type.startsWith('image/')) { showToast('Skipped non-image: ' + file.name, { tone: 'danger' }); continue; }
+    if (file.size > MAX_UPLOAD_BYTES) { showToast(`"${file.name}" is ${fmtFileSize(file.size)}, over the ${fmtFileSize(MAX_UPLOAD_BYTES)} limit.`, { tone: 'danger' }); continue; }
     try {
       const id = await attPut(file, { ownerType: 'series', ownerId: s.id, name: file.name, mime: file.type, size: file.size });
       s.moodboard.push({ id, name: file.name, mime: file.type, size: file.size, addedAt: new Date().toISOString() });
@@ -1042,34 +1049,47 @@ function updateSitterDimension(dimId, value) {
   workingSitter.dimensionValues[dimId] = value;
 }
 
+// Pull every visible subject form field into workingSitter without
+// validating, persisting, or timestamping. Used by both saveSitter and
+// any flow that re-renders the form (e.g. series change) so unsaved
+// edits aren't dropped.
+function captureSitterFormFields() {
+  const get = (id) => document.getElementById(id);
+  if (!workingSitter) return;
+  if (get('st_name'))          workingSitter.name = get('st_name').value.trim();
+  if (get('st_pronouns'))      workingSitter.pronouns = get('st_pronouns').value;
+  if (get('st_series'))        workingSitter.seriesId = get('st_series').value;
+  if (get('st_status'))        workingSitter.status = get('st_status').value;
+  if (get('st_location'))      workingSitter.location = get('st_location').value;
+  if (get('st_meeting'))       workingSitter.meetingContext = get('st_meeting').value;
+  if (get('st_widerTruth'))    workingSitter.widerTruth = get('st_widerTruth').value;
+  if (get('st_story'))         workingSitter.story = get('st_story').value;
+  if (get('st_email'))         workingSitter.contactEmail = get('st_email').value;
+  if (get('st_phone'))         workingSitter.contactPhone = get('st_phone').value;
+  if (get('st_social'))        workingSitter.contactSocial = get('st_social').value;
+  if (get('st_lastContacted')) workingSitter.lastContactedAt = get('st_lastContacted').value;
+  if (get('st_lastShot'))      workingSitter.lastShotAt = get('st_lastShot').value;
+  if (get('st_preNotes'))      workingSitter.preShootNotes = get('st_preNotes').value;
+  if (!workingSitter.release) workingSitter.release = { status: 'not_sent', sentAt: '', signedAt: '', notes: '' };
+  if (get('st_releaseStatus')) workingSitter.release.status = get('st_releaseStatus').value;
+  if (get('st_releaseNotes'))  workingSitter.release.notes = get('st_releaseNotes').value;
+  if (get('st_quotes'))        workingSitter.quotes = get('st_quotes').value.split('\n').map(q => q.trim()).filter(Boolean);
+}
+
 function onSitterSeriesChange() {
-  workingSitter.seriesId = document.getElementById('st_series').value;
+  captureSitterFormFields();
+  // captureSitterFormFields already wrote st_series.value into seriesId; the
+  // re-render below will repaint the per-series dimensions block.
   document.getElementById('sitterModalBody').innerHTML = renderSitterForm(workingSitter);
 }
 
 function saveSitter() {
-  workingSitter.name = document.getElementById('st_name').value.trim();
+  const prevStatus = workingSitter.status;
+  captureSitterFormFields();
   if (!workingSitter.name) { showToast('Sitter name is required.', { tone: 'danger' }); return; }
-  workingSitter.pronouns = document.getElementById('st_pronouns').value;
-  workingSitter.seriesId = document.getElementById('st_series').value;
-  const newStatus = document.getElementById('st_status').value;
-  if (newStatus !== workingSitter.status) workingSitter.statusUpdatedAt = new Date().toISOString();
-  workingSitter.status = newStatus;
-  workingSitter.location = document.getElementById('st_location').value;
-  workingSitter.meetingContext = document.getElementById('st_meeting').value;
-  workingSitter.widerTruth = document.getElementById('st_widerTruth').value;
-  workingSitter.story = document.getElementById('st_story').value;
-  workingSitter.contactEmail = document.getElementById('st_email').value;
-  workingSitter.contactPhone = document.getElementById('st_phone').value;
-  workingSitter.contactSocial = document.getElementById('st_social').value;
-  workingSitter.lastContactedAt = document.getElementById('st_lastContacted').value;
-  workingSitter.lastShotAt = document.getElementById('st_lastShot').value;
-  workingSitter.preShootNotes = document.getElementById('st_preNotes').value;
-  workingSitter.release.status = document.getElementById('st_releaseStatus').value;
-  workingSitter.release.notes = document.getElementById('st_releaseNotes').value;
+  if (workingSitter.status !== prevStatus) workingSitter.statusUpdatedAt = new Date().toISOString();
   if (workingSitter.release.status === 'sent' && !workingSitter.release.sentAt) workingSitter.release.sentAt = new Date().toISOString();
   if (workingSitter.release.status === 'signed' && !workingSitter.release.signedAt) workingSitter.release.signedAt = new Date().toISOString();
-  workingSitter.quotes = document.getElementById('st_quotes').value.split('\n').map(q => q.trim()).filter(Boolean);
   workingSitter.updatedAt = new Date().toISOString();
 
   if (editingSitterId) {
@@ -1512,7 +1532,7 @@ function renderSettings() {
     document.getElementById('setRole').value = u.role || 'owner';
   }
   document.getElementById('apiKey').value = state.settings.apiKey || '';
-  document.getElementById('apiModel').value = state.settings.apiModel || 'claude-opus-4-6';
+  document.getElementById('apiModel').value = state.settings.apiModel || 'claude-opus-4-7';
   updateApiStatusPill();
 }
 
@@ -1521,7 +1541,7 @@ function renderSettings() {
 // CLAUDE API (streaming + prompt caching)
 // =====================================================
 function getApiSettings() {
-  return { key: state.settings.apiKey || '', model: state.settings.apiModel || 'claude-opus-4-6' };
+  return { key: state.settings.apiKey || '', model: state.settings.apiModel || 'claude-opus-4-7' };
 }
 
 function saveApiSettings() {
@@ -2137,7 +2157,7 @@ function importData(event) {
       delete data._exportedAt;
 
       state = data;
-      if (!state.settings) state.settings = { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'light' };
+      if (!state.settings) state.settings = { apiKey: '', apiModel: 'claude-opus-4-7', theme: 'light' };
       if (!state.settings.theme) state.settings.theme = 'light';
       saveState();
       applyTheme(state.settings.theme);
@@ -2178,7 +2198,7 @@ function wipeData() {
     currentUserId: userId,
     users: [{ id: userId, name: 'Matthew', email: 'mjfloxx@gmail.com', team: 'Solo', role: 'owner' }],
     series: [], sitters: [], deadlines: [], templates: [], activity: [],
-    settings: { apiKey: '', apiModel: 'claude-opus-4-6', theme: prevTheme, themeUserSet: true }
+    settings: { apiKey: '', apiModel: 'claude-opus-4-7', theme: prevTheme, themeUserSet: true }
   };
   saveState();
   renderAll();
@@ -2228,8 +2248,13 @@ document.addEventListener('DOMContentLoaded', () => {
     el.addEventListener('click', () => switchTab(el.dataset.tab));
   });
 
-  // Subject filters
-  document.getElementById('sitterSearch').addEventListener('input', renderSitters);
+  // Subject filters: debounce the search input so we don't re-render on
+  // every keystroke; series + status are single-value selects so stay sync.
+  let _sitterSearchTimer = null;
+  document.getElementById('sitterSearch').addEventListener('input', () => {
+    clearTimeout(_sitterSearchTimer);
+    _sitterSearchTimer = setTimeout(renderSitters, 150);
+  });
   document.getElementById('filterSitterSeries').addEventListener('change', renderSitters);
   document.getElementById('filterSitterStatus').addEventListener('change', renderSitters);
 
