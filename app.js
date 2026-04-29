@@ -44,6 +44,110 @@ function uid(prefix) {
   return (prefix || 'x') + '_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
+// =====================================================
+// ATTACHMENT STORAGE (IndexedDB)
+// Blobs (release form PDFs, moodboard images, templates)
+// live in IndexedDB. References (id + name + mime + size)
+// live in localStorage state on the entity that owns them.
+// =====================================================
+const ATT_DB_NAME = 'field_studio_attachments';
+const ATT_STORE = 'blobs';
+let _attDbPromise = null;
+
+function attDb() {
+  if (_attDbPromise) return _attDbPromise;
+  _attDbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(ATT_DB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(ATT_STORE)) db.createObjectStore(ATT_STORE, { keyPath: 'id' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => { _attDbPromise = null; reject(req.error); };
+  });
+  return _attDbPromise;
+}
+
+async function attPut(blob, extra = {}) {
+  const id = uid('att');
+  const db = await attDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(ATT_STORE, 'readwrite');
+    tx.objectStore(ATT_STORE).put({ id, blob, addedAt: new Date().toISOString(), ...extra });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  return id;
+}
+
+async function attGet(id) {
+  const db = await attDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ATT_STORE, 'readonly');
+    const req = tx.objectStore(ATT_STORE).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function attDelete(id) {
+  const db = await attDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ATT_STORE, 'readwrite');
+    tx.objectStore(ATT_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function attOpen(id) {
+  const rec = await attGet(id);
+  if (!rec) { showToast('Attachment not found in this browser.', { tone: 'danger' }); return; }
+  const url = URL.createObjectURL(rec.blob);
+  window.open(url, '_blank', 'noopener');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function attDownload(id, fallbackName) {
+  const rec = await attGet(id);
+  if (!rec) { showToast('Attachment not found in this browser.', { tone: 'danger' }); return; }
+  const url = URL.createObjectURL(rec.blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fallbackName || 'attachment';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// Pick file(s) via a hidden input. Returns Promise<File[]>.
+function pickFiles({ accept = '', multiple = false } = {}) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    if (accept) input.accept = accept;
+    if (multiple) input.multiple = true;
+    input.style.display = 'none';
+    input.addEventListener('change', () => {
+      const files = Array.from(input.files || []);
+      input.remove();
+      resolve(files);
+    });
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+function fmtFileSize(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function fileIsImage(mime) { return /^image\//.test(mime || ''); }
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -57,17 +161,25 @@ function loadState() {
         if (!parsed.settings.themeUserSet) parsed.settings.theme = 'light';
         parsed.version = '1.2';
       }
+      // Schema migration to 1.3: introduce attachments / moodboard / templates.
+      if (parseFloat(parsed.version) < 1.3) {
+        if (!parsed.templates) parsed.templates = [];
+        (parsed.sitters || []).forEach(p => { if (!p.attachments) p.attachments = []; });
+        (parsed.series || []).forEach(s => { if (!s.moodboard) s.moodboard = []; });
+        parsed.version = '1.3';
+      }
       return parsed;
     }
   } catch (e) { console.warn('loadState failed', e); }
   const userId = uid('u');
   return {
-    version: '1.2',
+    version: '1.3',
     currentUserId: userId,
     users: [{ id: userId, name: 'Matthew', email: 'mjfloxx@gmail.com', team: 'Solo', role: 'owner' }],
     series: [],
     sitters: [],
     deadlines: [],
+    templates: [],
     activity: [],
     settings: { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'light' }
   };
@@ -233,6 +345,7 @@ function emptySeries() {
     outputGoals: '', visualStyleNotes: '',
     cameras: '', filmStocks: '', lenses: '',
     dimensions: [],
+    moodboard: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -680,6 +793,7 @@ function emptySitter(presetSeriesId) {
     release: { status: 'not_sent', sentAt: '', signedAt: '', notes: '' },
     dimensionValues: {},
     shoots: [], quotes: [], notes: [],
+    attachments: [],
     aiOutreach: '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
