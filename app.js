@@ -913,8 +913,120 @@ function renderSitterForm(p) {
     <textarea id="st_quotes" placeholder="One quote per line." style="min-height:80px">${escapeHtml((p.quotes || []).join('\n'))}</textarea>
 
     <div class="divider"></div>
+
+    <div class="flex-between" style="margin-bottom:8px">
+      <div>
+        <strong style="font-size:14px">Attachments</strong>
+        <div class="text-dim" style="margin-top:2px;font-size:12px">Signed releases, ID copies, reference photos, contracts. Stored locally in this browser.</div>
+      </div>
+      <div class="btn-row">
+        ${(state.templates || []).length ? `<select id="st_templatePicker" class="btn-sm" style="padding:5px 10px">
+          <option value="">Use template…</option>
+          ${state.templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}${t.tag ? ' · ' + escapeHtml(t.tag) : ''}</option>`).join('')}
+        </select>
+        <button class="btn-sm" onclick="applyTemplateToSubject()">Apply</button>` : ''}
+        <button class="btn-sm btn-primary" onclick="addSubjectAttachment()">Upload file</button>
+      </div>
+    </div>
+    <div id="st_attachmentsList">${renderAttachmentsList(p.attachments || [], 'subject')}</div>
+
+    <div class="divider"></div>
     <div id="aiOutreachOutput"></div>
   `;
+}
+
+// ===== Attachments UI helpers =====
+function renderAttachmentsList(list, ctx) {
+  if (!list || list.length === 0) {
+    return '<div class="text-dim" style="font-style:italic;padding:10px 0;font-size:12px">No attachments yet.</div>';
+  }
+  return '<div style="display:flex;flex-direction:column;gap:6px">' + list.map(a => {
+    const isImg = fileIsImage(a.mime);
+    const tagBit = a.fromTemplate ? `<span class="dim-type-pill" style="margin-left:8px">${escapeHtml(a.fromTemplate)}</span>` : '';
+    return `
+      <div class="flex-between" style="background:var(--surface-raised);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+        <div style="min-width:0;display:flex;align-items:center;gap:10px;flex:1">
+          <div style="font-size:18px;width:22px;text-align:center;color:var(--text-muted)">${isImg ? '◧' : '◼'}</div>
+          <div style="min-width:0;flex:1">
+            <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(a.name)}${tagBit}</div>
+            <div class="text-muted" style="font-size:11px;font-family:var(--font-mono)">${escapeHtml(a.mime || 'file')} · ${fmtFileSize(a.size)}</div>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn-sm btn-ghost" onclick="attOpen('${a.id}')">Open</button>
+          <button type="button" class="btn-sm btn-ghost" onclick="attDownload('${a.id}', ${JSON.stringify(a.name)})">Download</button>
+          <button type="button" class="btn-sm btn-ghost btn-danger" onclick="removeAttachmentFrom('${ctx}', '${a.id}')">Remove</button>
+        </div>
+      </div>
+    `;
+  }).join('') + '</div>';
+}
+
+async function addSubjectAttachment() {
+  if (!workingSitter) return;
+  const files = await pickFiles({ multiple: true });
+  if (!files.length) return;
+  if (!workingSitter.attachments) workingSitter.attachments = [];
+  for (const file of files) {
+    try {
+      const id = await attPut(file, { ownerType: 'sitter', ownerId: workingSitter.id, name: file.name, mime: file.type, size: file.size });
+      workingSitter.attachments.push({ id, name: file.name, mime: file.type, size: file.size, addedAt: new Date().toISOString() });
+    } catch (e) { showToast('Upload failed: ' + e.message, { tone: 'danger' }); }
+  }
+  refreshAttachmentsListUI();
+}
+
+async function applyTemplateToSubject() {
+  if (!workingSitter) return;
+  const sel = document.getElementById('st_templatePicker');
+  if (!sel || !sel.value) return;
+  const t = (state.templates || []).find(x => x.id === sel.value);
+  if (!t) return;
+  try {
+    const src = await attGet(t.attachmentId);
+    if (!src) { showToast('Template blob not found.', { tone: 'danger' }); return; }
+    const id = await attPut(src.blob, { ownerType: 'sitter', ownerId: workingSitter.id, name: t.name, mime: t.mime, size: t.size, sourceTemplateId: t.id });
+    if (!workingSitter.attachments) workingSitter.attachments = [];
+    workingSitter.attachments.push({ id, name: t.name, mime: t.mime, size: t.size, addedAt: new Date().toISOString(), fromTemplate: t.tag || 'template' });
+    sel.value = '';
+    refreshAttachmentsListUI();
+    showToast(`Template "${t.name}" attached`);
+  } catch (e) { showToast('Could not apply template: ' + e.message, { tone: 'danger' }); }
+}
+
+async function removeAttachmentFrom(ctx, attId) {
+  if (ctx === 'subject') {
+    if (!workingSitter || !workingSitter.attachments) return;
+    workingSitter.attachments = workingSitter.attachments.filter(a => a.id !== attId);
+    try { await attDelete(attId); } catch (_) {}
+    refreshAttachmentsListUI();
+  } else if (ctx === 'moodboard') {
+    if (!workingSeries || !workingSeries.moodboard) return;
+    workingSeries.moodboard = workingSeries.moodboard.filter(a => a.id !== attId);
+    try { await attDelete(attId); } catch (_) {}
+    refreshMoodboardUI();
+  } else if (ctx === 'template') {
+    const t = (state.templates || []).find(x => x.id === attId);
+    if (!t) return;
+    state.templates = state.templates.filter(x => x.id !== attId);
+    try { await attDelete(t.attachmentId); } catch (_) {}
+    saveState();
+    renderSettings();
+    showToast(`Template "${t.name}" deleted`);
+  }
+}
+
+function refreshAttachmentsListUI() {
+  const el = document.getElementById('st_attachmentsList');
+  if (el && workingSitter) el.innerHTML = renderAttachmentsList(workingSitter.attachments || [], 'subject');
+}
+
+function refreshMoodboardUI() {
+  // Rerender the active series detail view so the moodboard updates.
+  if (typeof detailSeriesId !== 'undefined' && detailSeriesId) {
+    const s = state.series.find(x => x.id === detailSeriesId);
+    if (s) document.getElementById('seriesDetailBody').innerHTML = renderSeriesDetail(s);
+  }
 }
 
 function renderDimensionInput(d, p) {
