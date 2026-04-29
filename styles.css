@@ -315,6 +315,27 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .btn-ghost:hover { color: var(--text); border-color: var(--border); background: transparent; }
 .btn-danger { color: var(--danger); border-color: var(--border); }
 .btn-danger:hover { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+
+/* AI actions: subtle iridescent gradient so they read as a special action class. */
+.btn-ai {
+  position: relative;
+  color: #fff;
+  border: 1px solid transparent;
+  background-image: linear-gradient(135deg, #6e8eb8 0%, #b78ce8 50%, #c9b072 100%);
+  background-size: 180% 180%;
+  background-position: 0% 50%;
+  font-weight: 500;
+  transition: background-position 320ms ease, filter 160ms ease, transform 160ms ease;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.04) inset;
+}
+.btn-ai:hover { background-position: 100% 50%; filter: brightness(1.06); }
+.btn-ai:active { transform: translateY(0.5px); }
+.btn-ai:disabled { opacity: 0.65; }
+[data-theme="light"] .btn-ai {
+  background-image: linear-gradient(135deg, #6e8eb8 0%, #9d6fd2 55%, #8a6d2e 100%);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
 .btn-sm { padding: 4px 9px; font-size: 12px; }
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 

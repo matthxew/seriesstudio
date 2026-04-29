@@ -354,7 +354,7 @@
   <div class="modal modal-narrow">
     <div class="modal-header">
       <strong>Switch user</strong>
-      <button class="btn-ghost" onclick="closeModal('userMenuModal')">Close</button>
+      <button class="btn-ghost modal-close" onclick="closeModal('userMenuModal')">Close</button>
     </div>
     <div class="modal-body">
       <ul class="menu-list" id="userMenuList"></ul>
@@ -369,7 +369,7 @@
   <div class="modal modal-wide">
     <div class="modal-header">
       <strong id="seriesModalTitle">New series</strong>
-      <button class="btn-ghost" onclick="closeModal('seriesModal')">Close</button>
+      <button class="btn-ghost modal-close" onclick="closeModal('seriesModal')">Close</button>
     </div>
     <div class="modal-body" id="seriesModalBody"></div>
     <div class="modal-footer">
@@ -387,7 +387,7 @@
       <strong id="seriesDetailTitle">Series detail</strong>
       <div class="btn-row">
         <button class="btn-sm" onclick="editSeriesFromDetail()">Edit series</button>
-        <button class="btn-ghost btn-sm" onclick="closeModal('seriesDetailModal')">Close</button>
+        <button class="btn-ghost btn-sm modal-close" onclick="closeModal('seriesDetailModal')">Close</button>
       </div>
     </div>
     <div class="modal-body" id="seriesDetailBody"></div>
@@ -398,14 +398,14 @@
   <div class="modal modal-wide">
     <div class="modal-header">
       <strong id="sitterModalTitle">New subject</strong>
-      <button class="btn-ghost" onclick="closeModal('sitterModal')">Close</button>
+      <button class="btn-ghost modal-close" onclick="closeModal('sitterModal')">Close</button>
     </div>
     <div class="modal-body" id="sitterModalBody"></div>
     <div class="modal-footer">
       <button onclick="deleteSitter()" class="btn-danger" id="sitterDeleteBtn" style="display:none">Delete</button>
       <div class="spacer"></div>
-      <button onclick="aiStoryCoach()" id="aiCoachBtn">AI story coach</button>
-      <button onclick="aiOutreach()" id="aiOutreachBtn">AI outreach draft</button>
+      <button class="btn-ai" onclick="aiStoryCoach()" id="aiCoachBtn">AI story coach</button>
+      <button class="btn-ai" onclick="aiOutreach()" id="aiOutreachBtn">AI outreach draft</button>
       <button class="btn-ghost" onclick="closeModal('sitterModal')">Cancel</button>
       <button class="btn-primary" onclick="saveSitter()">Save</button>
     </div>
@@ -416,7 +416,7 @@
   <div class="modal modal-narrow">
     <div class="modal-header">
       <strong id="deadlineModalTitle">New deadline</strong>
-      <button class="btn-ghost" onclick="closeModal('deadlineModal')">Close</button>
+      <button class="btn-ghost modal-close" onclick="closeModal('deadlineModal')">Close</button>
     </div>
     <div class="modal-body" id="deadlineModalBody"></div>
     <div class="modal-footer">

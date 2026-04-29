@@ -279,7 +279,8 @@ function openUserMenu() {
       <span class="text-muted">${escapeHtml(u.role)}</span>
     </li>
   `).join('');
-  document.getElementById('userMenuModal').classList.add('active');
+  const m = document.getElementById('userMenuModal');
+  m.classList.add('active'); setTopZ(m); refreshBackButtons();
 }
 
 function switchUser(userId) {
@@ -319,6 +320,7 @@ function closeModal(id) {
   if (id === 'seriesModal') editingSeriesId = null;
   if (id === 'sitterModal') editingSitterId = null;
   if (id === 'deadlineModal') editingDeadlineId = null;
+  if (typeof refreshBackButtons === 'function') refreshBackButtons();
 }
 
 // =====================================================
@@ -330,7 +332,8 @@ function openSeriesModal(id) {
   document.getElementById('seriesModalTitle').textContent = id ? 'Edit series' : 'New series';
   document.getElementById('seriesDeleteBtn').style.display = id ? 'inline-block' : 'none';
   document.getElementById('seriesModalBody').innerHTML = renderSeriesForm(workingSeries);
-  document.getElementById('seriesModal').classList.add('active');
+  const m = document.getElementById('seriesModal');
+  m.classList.add('active'); setTopZ(m); refreshBackButtons();
 }
 
 function emptySeries() {
@@ -575,7 +578,8 @@ function openSeriesDetail(id) {
   if (!s) return;
   document.getElementById('seriesDetailTitle').textContent = s.name;
   document.getElementById('seriesDetailBody').innerHTML = renderSeriesDetail(s);
-  document.getElementById('seriesDetailModal').classList.add('active');
+  const m = document.getElementById('seriesDetailModal');
+  m.classList.add('active'); setTopZ(m); refreshBackButtons();
   hydrateMoodboardThumbs();
 }
 
@@ -644,7 +648,7 @@ function renderSeriesDetail(s) {
 
     <div class="flex-between" style="margin:24px 0 10px">
       <h3 style="margin:0">Moodboard</h3>
-      <button class="btn-sm" onclick="addMoodboardImages('${s.id}')">Add images</button>
+      <button class="btn-primary btn-sm" onclick="addMoodboardImages('${s.id}')">Add images</button>
     </div>
     <div id="moodboardGrid">${renderMoodboard(s)}</div>
 
@@ -655,14 +659,14 @@ function renderSeriesDetail(s) {
     <div style="margin-top:24px">
       <div class="flex-between" style="margin-bottom:10px">
         <h3 style="margin:0">AI gap analysis</h3>
-        <button class="btn-primary btn-sm" onclick="aiGapAnalysis('${s.id}')" id="gapAnalysisBtn">Run AI gap analysis</button>
+        <button class="btn-ai btn-sm" onclick="aiGapAnalysis('${s.id}')" id="gapAnalysisBtn">Run AI gap analysis</button>
       </div>
       <div id="gapAnalysisOutput" class="text-dim" style="font-size:13px">Click the button to ask Claude what your project is structurally missing, given the thesis and current subject mix. Requires API key in Settings.</div>
     </div>
 
     <h3 style="margin:28px 0 10px">Subjects in this series <span class="text-muted" style="font-family:var(--font-mono);font-size:12px;font-weight:400">${sitters.length}</span></h3>
     <div class="btn-row" style="margin-bottom:10px">
-      <button class="btn-primary btn-sm" onclick="closeModal('seriesDetailModal'); openSitterModal(null, '${s.id}')">Add subject to this series</button>
+      <button class="btn-primary btn-sm" onclick="openSitterModal(null, '${s.id}')">Add subject to this series</button>
     </div>
     ${renderSitterListCompact(sitters)}
   `;
@@ -741,10 +745,9 @@ function renderNumericalCoverage(d, sitters) {
   if (vals.length === 0) {
     html += '<div class="text-dim" style="font-style:italic;font-size:12px">No data yet.</div>';
   } else {
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
-    const avg = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1);
-    html += `<div class="text-dim" style="font-size:13px;font-family:var(--font-mono)">N=${vals.length}, min ${min}, max ${max}, avg ${avg}</div>`;
+    const avg = (vals.reduce((a, b) => a + b, 0) / vals.length);
+    const display = Number.isInteger(avg) ? avg.toString() : avg.toFixed(1);
+    html += `<div style="display:flex;align-items:baseline;gap:10px"><div class="value" style="font-family:var(--font-display);font-size:24px;font-weight:600;letter-spacing:-0.4px">${display}</div><div class="text-muted" style="font-size:12px">average across ${vals.length} subject${vals.length === 1 ? '' : 's'}</div></div>`;
   }
   html += '</div>';
   return html;
@@ -762,7 +765,7 @@ function renderTextCoverage(d, sitters) {
 function renderSitterListCompact(sitters) {
   if (sitters.length === 0) return '<div class="text-dim" style="font-style:italic;font-size:13px">No subjects yet.</div>';
   return '<div>' + sitters.map(p => `
-    <div onclick="closeModal('seriesDetailModal'); openSitterModal('${p.id}')" class="sitter-row" style="grid-template-columns:1fr 120px">
+    <div onclick="openSitterModal('${p.id}')" class="sitter-row" style="grid-template-columns:1fr 120px">
       <div>
         <div class="name">${escapeHtml(p.name)}</div>
         <div class="meta">${escapeHtml(p.location || 'no location')}${p.widerTruth ? ' · ' + escapeHtml(p.widerTruth.slice(0, 60)) + (p.widerTruth.length > 60 ? '...' : '') : ''}</div>
@@ -781,7 +784,8 @@ function openSitterModal(id, presetSeriesId) {
   document.getElementById('sitterModalTitle').textContent = id ? 'Edit sitter' : 'New sitter';
   document.getElementById('sitterDeleteBtn').style.display = id ? 'inline-block' : 'none';
   document.getElementById('sitterModalBody').innerHTML = renderSitterForm(workingSitter);
-  document.getElementById('sitterModal').classList.add('active');
+  const m = document.getElementById('sitterModal');
+  m.classList.add('active'); setTopZ(m); refreshBackButtons();
 }
 
 function emptySitter(presetSeriesId) {
@@ -1223,7 +1227,8 @@ function openDeadlineModal(id) {
       <textarea id="dl_notes" placeholder="Submission rules, fees, criteria...">${escapeHtml(workingDeadline.notes)}</textarea>
     </div>
   `;
-  document.getElementById('deadlineModal').classList.add('active');
+  const m = document.getElementById('deadlineModal');
+  m.classList.add('active'); setTopZ(m); refreshBackButtons();
 }
 
 function saveDeadline() {
@@ -2468,6 +2473,65 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   setupCmdK();
+  setupModalDismiss();
   switchTab('dashboard');
   renderAll();
 });
+
+// Click-outside-to-close + Esc closes the topmost modal.
+// Modals stack: opening one from inside another doesn't close the
+// parent, so closing returns you to where you were.
+function topmostModalId() {
+  const active = Array.from(document.querySelectorAll('.modal-backdrop.active'));
+  if (!active.length) return null;
+  // The cmd-k palette has its own behavior; let it manage itself.
+  const stack = active.filter(el => !el.classList.contains('cmdk-backdrop'));
+  if (!stack.length) return null;
+  // The element opened latest is the topmost; we approximate by DOM order
+  // but boost any modal that has been opened after another (z-index gets
+  // bumped via setTopZ on open).
+  let top = stack[0];
+  let topZ = parseInt(top.style.zIndex || '0', 10);
+  for (const el of stack) {
+    const z = parseInt(el.style.zIndex || '0', 10);
+    if (z >= topZ) { top = el; topZ = z; }
+  }
+  return top.id;
+}
+
+let _modalZ = 100;
+function setTopZ(modalEl) {
+  _modalZ += 1;
+  modalEl.style.zIndex = _modalZ;
+}
+
+function setupModalDismiss() {
+  document.addEventListener('click', (e) => {
+    // Only close when the click lands on the backdrop itself, not bubbled
+    // from inside the .modal box.
+    if (e.target.classList && e.target.classList.contains('modal-backdrop') && e.target.classList.contains('active') && !e.target.classList.contains('cmdk-backdrop')) {
+      closeModal(e.target.id);
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    // If cmd-k is open, let its own handler take it.
+    const cmdkOpen = document.getElementById('cmdkModal')?.classList.contains('active');
+    if (cmdkOpen) return;
+    const id = topmostModalId();
+    if (id) { e.preventDefault(); closeModal(id); }
+  });
+}
+
+function anyOtherModalActive(exceptId) {
+  return Array.from(document.querySelectorAll('.modal-backdrop.active'))
+    .some(el => el.id !== exceptId && !el.classList.contains('cmdk-backdrop'));
+}
+
+function refreshBackButtons() {
+  document.querySelectorAll('.modal-backdrop.active .modal-close').forEach(btn => {
+    const modal = btn.closest('.modal-backdrop');
+    if (!modal) return;
+    btn.textContent = anyOtherModalActive(modal.id) ? '← Back' : 'Close';
+  });
+}
