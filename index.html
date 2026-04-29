@@ -193,7 +193,31 @@
           </div>
           <button class="btn-primary" onclick="openDeadlineModal()">Add deadline</button>
         </div>
-        <h2 class="section-title">Next 30 days</h2>
+        <div class="toolbar" style="margin-bottom:18px">
+          <div class="flex-row">
+            <select id="filterCalType" style="width:auto">
+              <option value="">All types</option>
+              <option value="submission">Submission</option>
+              <option value="lab_return">Lab return</option>
+              <option value="shoot">Shoot</option>
+              <option value="review">Portfolio review</option>
+              <option value="exhibition">Exhibition</option>
+              <option value="other">Other</option>
+            </select>
+            <select id="filterCalSeries" style="width:auto">
+              <option value="">All series</option>
+            </select>
+            <select id="filterCalRange" style="width:auto">
+              <option value="30">Next 30 days</option>
+              <option value="7">Next 7 days</option>
+              <option value="60">Next 60 days</option>
+              <option value="90">Next 90 days</option>
+              <option value="all">All upcoming</option>
+            </select>
+          </div>
+          <button class="btn-sm" onclick="resetCalendarFilters()">Reset</button>
+        </div>
+        <h2 class="section-title" id="calendarRangeLabel">Next 30 days</h2>
         <div id="calendarUpcoming"></div>
         <details>
           <summary>Show past events</summary>
@@ -214,6 +238,15 @@
 
       <!-- SETTINGS -->
       <div class="panel" id="panel-settings">
+
+        <h2 class="section-title">About Field Studio</h2>
+        <div class="card">
+          <div class="text-dim" style="font-size:13px">
+            <p style="margin-top:0">Field Studio is a workflow tool built for documentary photographers. Unlike commercial photographer CRMs, it does not assume your subject is a paying client.</p>
+            <p>Custom dimensions per series let you define exactly what matters for your project. Coverage views show whether your project is balanced or gappy against your own targets.</p>
+            <p style="margin-bottom:0">v1.2 — single user mode running locally. The data model is multi-user and team aware so the tool can grow into a shared workspace later.</p>
+          </div>
+        </div>
 
         <h2 class="section-title">Account</h2>
         <div class="card">
@@ -295,14 +328,6 @@
           </div>
         </div>
 
-        <h2 class="section-title">About Field Studio</h2>
-        <div class="card">
-          <div class="text-dim" style="font-size:13px">
-            <p style="margin-top:0">Field Studio is a workflow tool built for documentary photographers. Unlike commercial photographer CRMs, it does not assume your subject is a paying client.</p>
-            <p>Custom dimensions per series let you define exactly what matters for your project. Coverage views show whether your project is balanced or gappy against your own targets.</p>
-            <p style="margin-bottom:0">v1.1 — single user mode running locally. The data model is multi-user and team aware so the tool can grow into a shared workspace later.</p>
-          </div>
-        </div>
       </div>
 
     </div>

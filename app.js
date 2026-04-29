@@ -231,6 +231,7 @@ function emptySeries() {
     targetSitterCount: 12,
     targetCompletionDate: '',
     outputGoals: '', visualStyleNotes: '',
+    cameras: '', filmStocks: '', lenses: '',
     dimensions: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -266,6 +267,21 @@ function renderSeriesForm(s) {
     <div class="form-group">
       <label>Visual style notes (optional)</label>
       <textarea id="ser_visual" placeholder="Light, palette, framing approach...">${escapeHtml(s.visualStyleNotes || '')}</textarea>
+    </div>
+
+    <div class="form-row-3">
+      <div class="form-group">
+        <label>Cameras</label>
+        <input type="text" id="ser_cameras" value="${escapeHtml(s.cameras || '')}" placeholder="e.g., Mamiya 7II, Leica M6">
+      </div>
+      <div class="form-group">
+        <label>Film stocks</label>
+        <input type="text" id="ser_filmStocks" value="${escapeHtml(s.filmStocks || '')}" placeholder="e.g., Portra 400, Tri-X 400">
+      </div>
+      <div class="form-group">
+        <label>Lenses</label>
+        <input type="text" id="ser_lenses" value="${escapeHtml(s.lenses || '')}" placeholder="e.g., 35mm, 80mm">
+      </div>
     </div>
 
     <div class="divider"></div>
@@ -389,6 +405,9 @@ function saveSeries() {
   workingSeries.targetCompletionDate = document.getElementById('ser_targetDate').value;
   workingSeries.outputGoals = document.getElementById('ser_outputs').value;
   workingSeries.visualStyleNotes = document.getElementById('ser_visual').value;
+  workingSeries.cameras = document.getElementById('ser_cameras').value;
+  workingSeries.filmStocks = document.getElementById('ser_filmStocks').value;
+  workingSeries.lenses = document.getElementById('ser_lenses').value;
   workingSeries.updatedAt = new Date().toISOString();
 
   if (editingSeriesId) {
@@ -485,6 +504,29 @@ function renderSeriesDetail(s) {
         </div>
       </div>
     </div>
+
+    ${(s.visualStyleNotes || s.cameras || s.filmStocks || s.lenses) ? `
+    <div class="card" style="margin-bottom:20px">
+      ${s.visualStyleNotes ? `<div style="margin-bottom:12px">
+        <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">VISUAL STYLE</div>
+        <div style="font-size:13px;line-height:1.55">${escapeHtml(s.visualStyleNotes)}</div>
+      </div>` : ''}
+      <div class="form-row-3" style="gap:14px">
+        ${s.cameras ? `<div>
+          <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">CAMERAS</div>
+          <div style="font-size:13px;font-family:var(--font-mono)">${escapeHtml(s.cameras)}</div>
+        </div>` : ''}
+        ${s.filmStocks ? `<div>
+          <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">FILM</div>
+          <div style="font-size:13px;font-family:var(--font-mono)">${escapeHtml(s.filmStocks)}</div>
+        </div>` : ''}
+        ${s.lenses ? `<div>
+          <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">LENSES</div>
+          <div style="font-size:13px;font-family:var(--font-mono)">${escapeHtml(s.lenses)}</div>
+        </div>` : ''}
+      </div>
+    </div>
+    ` : ''}
 
     <h3 style="margin:24px 0 8px">Coverage by dimension</h3>
     <div class="text-dim" style="margin-bottom:14px;font-size:13px">How your sitters distribute across the dimensions you defined for this series.</div>
@@ -1100,15 +1142,56 @@ function typeLabel(t) {
 // CALENDAR / ACTIVITY
 // =====================================================
 function renderCalendar() {
-  const today = new Date();
-  const upcoming = state.deadlines.filter(d => new Date(d.date) >= today).sort((a, b) => new Date(a.date) - new Date(b.date));
-  const past = state.deadlines.filter(d => new Date(d.date) < today).sort((a, b) => new Date(b.date) - new Date(a.date));
+  const sf = document.getElementById('filterCalSeries');
+  if (sf) {
+    const cur = sf.value;
+    sf.innerHTML = '<option value="">All series</option>' + state.series.map(s => `<option value="${s.id}" ${cur === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
+  }
+
+  const typeF = (document.getElementById('filterCalType') || {}).value || '';
+  const seriesF = (document.getElementById('filterCalSeries') || {}).value || '';
+  const rangeF = (document.getElementById('filterCalRange') || {}).value || '30';
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let cutoff = null;
+  if (rangeF !== 'all') {
+    cutoff = new Date(today.getTime() + parseInt(rangeF, 10) * 86400000);
+  }
+
+  const matches = (d) => (!typeF || d.type === typeF) && (!seriesF || d.relatedSeriesId === seriesF);
+
+  const upcoming = state.deadlines
+    .filter(d => {
+      const dt = new Date(d.date);
+      if (dt < today) return false;
+      if (cutoff && dt > cutoff) return false;
+      return matches(d);
+    })
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  const past = state.deadlines
+    .filter(d => new Date(d.date) < today && matches(d))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const label = document.getElementById('calendarRangeLabel');
+  if (label) {
+    const labels = { '7': 'Next 7 days', '30': 'Next 30 days', '60': 'Next 60 days', '90': 'Next 90 days', 'all': 'All upcoming' };
+    label.textContent = labels[rangeF] || 'Upcoming';
+  }
 
   const upDiv = document.getElementById('calendarUpcoming');
-  upDiv.innerHTML = upcoming.length === 0 ? '<div class="text-dim" style="font-style:italic">No upcoming events.</div>' : upcoming.map(deadlineItem).join('');
+  upDiv.innerHTML = upcoming.length === 0 ? '<div class="text-dim" style="font-style:italic">No upcoming events match these filters.</div>' : upcoming.map(deadlineItem).join('');
 
   const pastDiv = document.getElementById('calendarPast');
   pastDiv.innerHTML = past.length === 0 ? '<div class="text-dim" style="font-style:italic">No past events.</div>' : past.map(deadlineItem).join('');
+}
+
+function resetCalendarFilters() {
+  ['filterCalType', 'filterCalSeries', 'filterCalRange'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = (id === 'filterCalRange') ? '30' : '';
+  });
+  renderCalendar();
 }
 
 function activityItem(a) {
@@ -1694,6 +1777,9 @@ function seedDemoData() {
     targetCompletionDate: '2026-08-01',
     outputGoals: 'POB Vol. 9 + microsite + zine',
     visualStyleNotes: 'Environmental portraits in sitter spaces, available natural light, 35mm color, classical straightforward portrait grammar.',
+    cameras: 'Mamiya 7II, Leica M6',
+    filmStocks: 'Kodak Portra 400, Kodak Portra 800, Ilford HP5+',
+    lenses: '80mm f/4 (Mamiya), 35mm f/2 Summicron',
     dimensions: [
       { id: uid('d'), name: 'Generation', type: 'categorical_targets', description: 'Mix of generational experiences in the UK.',
         options: [
@@ -1731,6 +1817,9 @@ function seedDemoData() {
     targetCompletionDate: '2026-08-01',
     outputGoals: 'POB Vol. 9 + court atlas microsite',
     visualStyleNotes: 'Court environmental portraits, low golden-hour light, vertical 2:3 crops.',
+    cameras: 'Pentax 67, Nikon F3',
+    filmStocks: 'Kodak Portra 400, Cinestill 800T (night sessions)',
+    lenses: '105mm f/2.4 (Pentax), 50mm f/1.4 (Nikon), 28mm f/2.8 (Nikon)',
     dimensions: [
       { id: uid('d'), name: 'Role', type: 'categorical_targets', description: 'Players, coaches, fans, court regulars.',
         options: [
@@ -1970,6 +2059,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('sitterSearch').addEventListener('input', renderSitters);
   document.getElementById('filterSitterSeries').addEventListener('change', renderSitters);
   document.getElementById('filterSitterStatus').addEventListener('change', renderSitters);
+
+  // Calendar filters
+  ['filterCalType', 'filterCalSeries', 'filterCalRange'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', renderCalendar);
+  });
 
   setupCmdK();
   switchTab('dashboard');
