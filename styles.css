@@ -309,7 +309,7 @@ button, .btn {
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
   line-height: 1.4;
 }
-button:hover, .btn:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+button:not(.btn-ai):hover, .btn:not(.btn-ai):hover { background: var(--surface-hover); border-color: var(--border-strong); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--accent);
@@ -404,11 +404,37 @@ label {
   .row.row-2 { grid-template-columns: 1fr; }
 }
 
+.stat-card {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-raised);
+  --stat-accent: var(--accent);
+  border-color: color-mix(in srgb, var(--stat-accent) 22%, var(--border));
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--stat-accent), color-mix(in srgb, var(--stat-accent) 35%, transparent));
+}
+.stat-card::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto auto;
+  width: 120px; height: 120px;
+  background: radial-gradient(circle at top right, color-mix(in srgb, var(--stat-accent) 14%, transparent), transparent 70%);
+  pointer-events: none;
+}
 .stat-card .label {
-  color: var(--text-dim);
+  color: var(--stat-accent);
   font-size: 11px;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  text-transform: uppercase;
   margin-bottom: 8px;
+  position: relative;
+  z-index: 1;
 }
 .stat-card .value {
   font-family: var(--font-display);
@@ -416,8 +442,19 @@ label {
   font-weight: 600;
   letter-spacing: -0.5px;
   line-height: 1.1;
+  color: var(--text);
+  position: relative;
+  z-index: 1;
 }
-.stat-card .sub { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+.stat-card .sub { color: var(--text-muted); font-size: 12px; margin-top: 6px; position: relative; z-index: 1; }
+.stat-card.stat-indigo  { --stat-accent: #4f46e5; }
+.stat-card.stat-purple  { --stat-accent: #7c3aed; }
+.stat-card.stat-amber   { --stat-accent: #d97706; }
+.stat-card.stat-emerald { --stat-accent: #059669; }
+[data-theme="dark"] .stat-card.stat-indigo  { --stat-accent: #818cf8; }
+[data-theme="dark"] .stat-card.stat-purple  { --stat-accent: #a78bfa; }
+[data-theme="dark"] .stat-card.stat-amber   { --stat-accent: #fbbf24; }
+[data-theme="dark"] .stat-card.stat-emerald { --stat-accent: #34d399; }
 
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
@@ -458,18 +495,46 @@ label {
 
 /* ===== Series cards ===== */
 .series-card {
-  background: var(--surface);
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px 20px 16px;
   cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease;
+  transition: border-color 120ms ease, transform 160ms ease, box-shadow 160ms ease;
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-height: 150px;
+  --card-accent: var(--accent);
 }
-.series-card:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+.series-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--card-accent), color-mix(in srgb, var(--card-accent) 40%, transparent));
+}
+.series-card::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 140px; height: 140px;
+  background: radial-gradient(circle at top right, color-mix(in srgb, var(--card-accent) 14%, transparent), transparent 70%);
+  pointer-events: none;
+}
+.series-card:hover { border-color: color-mix(in srgb, var(--card-accent) 50%, var(--border)); transform: translateY(-1px); box-shadow: 0 6px 20px -10px color-mix(in srgb, var(--card-accent) 50%, transparent); }
+.series-card.accent-1 { --card-accent: #4f46e5; } /* indigo */
+.series-card.accent-2 { --card-accent: #7c3aed; } /* purple */
+.series-card.accent-3 { --card-accent: #059669; } /* emerald */
+.series-card.accent-4 { --card-accent: #2563eb; } /* blue */
+.series-card.accent-5 { --card-accent: #d97706; } /* amber */
+[data-theme="dark"] .series-card.accent-1 { --card-accent: #818cf8; }
+[data-theme="dark"] .series-card.accent-2 { --card-accent: #a78bfa; }
+[data-theme="dark"] .series-card.accent-3 { --card-accent: #34d399; }
+[data-theme="dark"] .series-card.accent-4 { --card-accent: #60a5fa; }
+[data-theme="dark"] .series-card.accent-5 { --card-accent: #fbbf24; }
 .series-card .series-name { font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
 .series-card .series-thesis { color: var(--text-dim); font-size: 13px; line-height: 1.5; flex: 1; }
 .series-progress-track {
@@ -538,6 +603,42 @@ label {
 .sitter-row .name { font-weight: 500; font-size: 14px; margin-bottom: 2px; }
 .sitter-row .meta { color: var(--text-dim); font-size: 12px; }
 .sitter-row .right { text-align: right; }
+
+.sitter-row-head {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 8px 16px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  cursor: default !important;
+}
+.sitter-row-head:hover { background: transparent !important; border: 0 !important; }
+.sitter-row-head .sortable {
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.sitter-row-head .sortable:hover { background: var(--surface-hover); color: var(--text); }
+.sitter-row-head .right.sortable { justify-content: flex-end; float: right; }
+.sort-ind {
+  font-size: 9px;
+  color: var(--text-muted);
+  opacity: 0.4;
+  font-family: var(--font-mono);
+  min-width: 8px;
+}
+.sort-ind.sort-active { color: var(--accent); opacity: 1; }
+
 @media (max-width: 880px) {
   .sitter-row { grid-template-columns: 1fr auto; }
   .sitter-row .meta-col-series, .sitter-row .meta-col-contact { display: none; }
@@ -595,6 +696,18 @@ label {
 }
 [data-theme="light"] .modal-backdrop { background: rgba(20,22,26,0.32); }
 .modal-backdrop.active { display: flex; }
+/* In-modal section headers (Subject quotes / Attachments / Release form etc.) */
+.modal-body > strong,
+.modal-body .flex-between > div > strong {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.1px;
+}
+.modal-body label {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .modal {
   background: var(--surface-raised);
   border: 1px solid var(--border);
@@ -712,15 +825,17 @@ label {
 }
 .deadline-item:hover { border-color: var(--border-strong); }
 .deadline-item .deadline-date {
-  background: transparent;
-  border: 1px solid var(--border);
+  background: linear-gradient(160deg, var(--accent), color-mix(in srgb, var(--accent) 65%, var(--purple, #7c3aed)));
+  color: #fff;
+  border: 0;
   border-radius: var(--radius-sm);
-  padding: 6px 10px;
+  padding: 8px 10px;
   text-align: center;
   min-width: 56px;
+  box-shadow: 0 2px 8px -3px color-mix(in srgb, var(--accent) 50%, transparent);
 }
-.deadline-item .deadline-date .day { font-family: var(--font-display); font-size: 18px; font-weight: 600; display: block; line-height: 1; }
-.deadline-item .deadline-date .month { font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase; }
+.deadline-item .deadline-date .day { font-family: var(--font-display); font-size: 18px; font-weight: 700; display: block; line-height: 1; color: #fff; }
+.deadline-item .deadline-date .month { font-size: 10px; color: rgba(255,255,255,0.85); letter-spacing: 0.5px; text-transform: uppercase; font-weight: 600; }
 .deadline-item .deadline-body { flex: 1; }
 .deadline-item .deadline-name { font-weight: 500; font-size: 14px; margin-bottom: 2px; }
 .deadline-item .deadline-meta { color: var(--text-dim); font-size: 12px; }

@@ -34,6 +34,7 @@ let workingSeries = null;
 let workingSitter = null;
 let workingDeadline = null;
 let sitterViewMode = 'list';
+let sitterSort = { key: 'name', dir: 'asc' };
 let detailSeriesId = null;
 let activeTab = 'dashboard';
 
@@ -1212,13 +1213,67 @@ function renderSitters() {
   else renderSittersKanbanMode(list);
 }
 
+function sortIndicator(key) {
+  if (sitterSort.key !== key) return '<span class="sort-ind"></span>';
+  return `<span class="sort-ind sort-active">${sitterSort.dir === 'asc' ? '▲' : '▼'}</span>`;
+}
+
+function sitterFieldFor(p, key) {
+  if (key === 'series') {
+    const s = state.series.find(x => x.id === p.seriesId);
+    return s ? s.name : '';
+  }
+  if (key === 'lastContactedAt') return p.lastContactedAt || '';
+  if (key === 'status') {
+    const idx = STATUSES.findIndex(s => s.id === p.status);
+    return idx === -1 ? 99 : idx; // sort by pipeline order, not alphabetic
+  }
+  return p[key] || '';
+}
+
+function compareSitters(a, b, key, dir) {
+  const va = sitterFieldFor(a, key);
+  const vb = sitterFieldFor(b, key);
+  let cmp;
+  if (typeof va === 'number' || typeof vb === 'number') {
+    cmp = (Number(va) || 0) - (Number(vb) || 0);
+  } else if (key === 'lastContactedAt') {
+    // ISO YYYY-MM-DD strings sort as dates lexicographically; missing values last.
+    if (!va && vb) cmp = 1;
+    else if (va && !vb) cmp = -1;
+    else cmp = String(va).localeCompare(String(vb));
+  } else {
+    cmp = String(va).toLowerCase().localeCompare(String(vb).toLowerCase());
+  }
+  return dir === 'desc' ? -cmp : cmp;
+}
+
+function setSitterSort(key) {
+  if (sitterSort.key === key) {
+    sitterSort.dir = sitterSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    sitterSort.key = key;
+    // Dates default to most-recent-first, status to pipeline order, otherwise alpha asc.
+    sitterSort.dir = (key === 'lastContactedAt') ? 'desc' : 'asc';
+  }
+  renderSitters();
+}
+
 function renderSittersListMode(list) {
   const target = document.getElementById('sittersListView');
   if (list.length === 0) {
     target.innerHTML = '<div class="empty"><h3>No subjects match</h3><p>Adjust filters or add a new subject.</p></div>';
     return;
   }
-  target.innerHTML = '<div>' + list.map(p => {
+  const sorted = [...list].sort((a, b) => compareSitters(a, b, sitterSort.key, sitterSort.dir));
+  const header = `
+    <div class="sitter-row sitter-row-head">
+      <div onclick="setSitterSort('name')" class="sortable">Subject ${sortIndicator('name')}</div>
+      <div onclick="setSitterSort('series')" class="meta-col-series sortable">Series ${sortIndicator('series')}</div>
+      <div onclick="setSitterSort('lastContactedAt')" class="meta-col-contact sortable">Last contacted ${sortIndicator('lastContactedAt')}</div>
+      <div onclick="setSitterSort('status')" class="right sortable">Status ${sortIndicator('status')}</div>
+    </div>`;
+  target.innerHTML = '<div>' + header + sorted.map(p => {
     const series = state.series.find(s => s.id === p.seriesId);
     return `
       <div onclick="openSitterModal('${p.id}')" class="sitter-row">
@@ -1319,13 +1374,22 @@ function renderDashboard() {
     : recent.map(activityItem).join('');
 }
 
+function seriesAccent(id) {
+  // Deterministic 1..5 hash from the series id so the same series always
+  // renders with the same accent stripe across reloads.
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return (h % 5) + 1;
+}
+
 function seriesCard(s) {
   const sitters = state.sitters.filter(p => p.seriesId === s.id);
   const finalized = sitters.filter(p => ['finalized', 'submitted', 'published'].includes(p.status)).length;
   const target = s.targetSitterCount || 12;
   const progress = Math.min(100, Math.round((finalized / target) * 100));
+  const accent = seriesAccent(s.id);
   return `
-    <div class="series-card" onclick="openSeriesDetail('${s.id}')">
+    <div class="series-card accent-${accent}" onclick="openSeriesDetail('${s.id}')">
       <div class="series-name">${escapeHtml(s.name)}</div>
       <div class="series-thesis">${escapeHtml((s.thesis || 'No thesis yet').slice(0, 140))}${(s.thesis || '').length > 140 ? '...' : ''}</div>
       <div class="flex-between" style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">
