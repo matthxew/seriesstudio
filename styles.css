@@ -195,6 +195,9 @@ aside.rail {
 
 main.content { min-width: 0; }
 
+.panel { display: none; }
+.panel.active { display: block; }
+
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 28px;

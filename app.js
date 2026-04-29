@@ -49,21 +49,27 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (!parsed.settings) parsed.settings = { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'dark' };
-      if (!parsed.settings.theme) parsed.settings.theme = 'dark';
+      if (!parsed.settings) parsed.settings = { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'light' };
+      if (!parsed.settings.theme) parsed.settings.theme = 'light';
+      // One-time migration: anything older than 1.2 defaulted to dark.
+      // Flip to light unless the user explicitly toggled (themeUserSet).
+      if (!parsed.version || parseFloat(parsed.version) < 1.2) {
+        if (!parsed.settings.themeUserSet) parsed.settings.theme = 'light';
+        parsed.version = '1.2';
+      }
       return parsed;
     }
   } catch (e) { console.warn('loadState failed', e); }
   const userId = uid('u');
   return {
-    version: '1.1',
+    version: '1.2',
     currentUserId: userId,
     users: [{ id: userId, name: 'Matthew', email: 'mjfloxx@gmail.com', team: 'Solo', role: 'owner' }],
     series: [],
     sitters: [],
     deadlines: [],
     activity: [],
-    settings: { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'dark' }
+    settings: { apiKey: '', apiModel: 'claude-opus-4-6', theme: 'light' }
   };
 }
 
@@ -133,6 +139,7 @@ function applyTheme(theme) {
 function toggleTheme() {
   const next = (state.settings.theme === 'dark') ? 'light' : 'dark';
   state.settings.theme = next;
+  state.settings.themeUserSet = true;
   saveState();
   applyTheme(next);
 }
