@@ -576,6 +576,7 @@ function openSeriesDetail(id) {
   document.getElementById('seriesDetailTitle').textContent = s.name;
   document.getElementById('seriesDetailBody').innerHTML = renderSeriesDetail(s);
   document.getElementById('seriesDetailModal').classList.add('active');
+  hydrateMoodboardThumbs();
 }
 
 function editSeriesFromDetail() {
@@ -640,6 +641,12 @@ function renderSeriesDetail(s) {
       </div>
     </div>
     ` : ''}
+
+    <div class="flex-between" style="margin:24px 0 10px">
+      <h3 style="margin:0">Moodboard</h3>
+      <button class="btn-sm" onclick="addMoodboardImages('${s.id}')">Add images</button>
+    </div>
+    <div id="moodboardGrid">${renderMoodboard(s)}</div>
 
     <h3 style="margin:24px 0 8px">Coverage by dimension</h3>
     <div class="text-dim" style="margin-bottom:14px;font-size:13px">How your subjects distribute across the dimensions you defined for this series.</div>
@@ -1021,6 +1028,48 @@ function refreshAttachmentsListUI() {
   if (el && workingSitter) el.innerHTML = renderAttachmentsList(workingSitter.attachments || [], 'subject');
 }
 
+function renderMoodboard(s) {
+  const items = s.moodboard || [];
+  if (items.length === 0) {
+    return '<div class="text-dim" style="font-style:italic;font-size:13px;padding:14px 0">No moodboard images yet. Drop in references, location scouts, light tests — anything that anchors the visual direction.</div>';
+  }
+  return '<div class="moodboard-grid">' + items.map(m => `
+    <div class="moodboard-tile" onclick="attOpen('${m.id}')" title="${escapeHtml(m.name)} — click to open">
+      <img data-att-id="${m.id}" alt="${escapeHtml(m.name)}" />
+      <button class="moodboard-remove" onclick="event.stopPropagation();removeAttachmentFrom('moodboard', '${m.id}')" title="Remove">×</button>
+    </div>
+  `).join('') + '</div>';
+}
+
+async function hydrateMoodboardThumbs() {
+  const imgs = document.querySelectorAll('img[data-att-id]');
+  for (const img of imgs) {
+    if (img.src) continue;
+    const id = img.getAttribute('data-att-id');
+    const rec = await attGet(id);
+    if (rec && rec.blob) img.src = URL.createObjectURL(rec.blob);
+  }
+}
+
+async function addMoodboardImages(seriesId) {
+  const s = state.series.find(x => x.id === seriesId);
+  if (!s) return;
+  workingSeries = s; // so removeAttachmentFrom('moodboard', id) finds it
+  const files = await pickFiles({ accept: 'image/*', multiple: true });
+  if (!files.length) return;
+  if (!s.moodboard) s.moodboard = [];
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) { showToast('Skipped non-image: ' + file.name, { tone: 'danger' }); continue; }
+    try {
+      const id = await attPut(file, { ownerType: 'series', ownerId: s.id, name: file.name, mime: file.type, size: file.size });
+      s.moodboard.push({ id, name: file.name, mime: file.type, size: file.size, addedAt: new Date().toISOString() });
+    } catch (e) { showToast('Upload failed: ' + e.message, { tone: 'danger' }); }
+  }
+  s.updatedAt = new Date().toISOString();
+  saveState();
+  refreshMoodboardUI();
+}
+
 async function addTemplate() {
   const files = await pickFiles({});
   if (!files.length) return;
@@ -1050,7 +1099,10 @@ function refreshMoodboardUI() {
   // Rerender the active series detail view so the moodboard updates.
   if (typeof detailSeriesId !== 'undefined' && detailSeriesId) {
     const s = state.series.find(x => x.id === detailSeriesId);
-    if (s) document.getElementById('seriesDetailBody').innerHTML = renderSeriesDetail(s);
+    if (s) {
+      document.getElementById('seriesDetailBody').innerHTML = renderSeriesDetail(s);
+      hydrateMoodboardThumbs();
+    }
   }
 }
 
