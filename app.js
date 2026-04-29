@@ -46,7 +46,7 @@ function uid(prefix) {
 
 // =====================================================
 // ATTACHMENT STORAGE (IndexedDB)
-// Blobs (release form PDFs, moodboard images, templates)
+// Blobs (signed releases, ID copies, moodboard images, etc.)
 // live in IndexedDB. References (id + name + mime + size)
 // live in localStorage state on the entity that owns them.
 // =====================================================
@@ -271,38 +271,6 @@ function switchTab(name) {
 // =====================================================
 // USER MANAGEMENT
 // =====================================================
-function openUserMenu() {
-  const list = document.getElementById('userMenuList');
-  list.innerHTML = state.users.map(u => `
-    <li onclick="switchUser('${u.id}')" class="${u.id === state.currentUserId ? 'active' : ''}">
-      <span style="display:flex;align-items:center;gap:10px"><span class="user-avatar">${avatarFor(u)}</span> ${escapeHtml(u.name)} ${u.id === state.currentUserId ? '<span class="text-muted">(current)</span>' : ''}</span>
-      <span class="text-muted">${escapeHtml(u.role)}</span>
-    </li>
-  `).join('');
-  const m = document.getElementById('userMenuModal');
-  m.classList.add('active'); setTopZ(m); refreshBackButtons();
-}
-
-function switchUser(userId) {
-  state.currentUserId = userId;
-  saveState();
-  closeModal('userMenuModal');
-  renderAll();
-  logActivity('user_switch', getCurrentUser().name + ' is now active', 'user', userId);
-}
-
-function addCollaborator() {
-  const name = prompt('Name of the new user (e.g., a picture editor or collaborator):');
-  if (!name) return;
-  const email = prompt('Email (optional):') || '';
-  const newUser = { id: uid('u'), name, email, team: getCurrentUser().team || 'Solo', role: 'editor' };
-  state.users.push(newUser);
-  logActivity('user_added', 'Added ' + name, 'user', newUser.id);
-  saveState();
-  closeModal('userMenuModal');
-  renderAll();
-}
-
 function saveProfile() {
   const u = getCurrentUser();
   if (!u) return;
@@ -806,6 +774,7 @@ function emptySitter(presetSeriesId) {
     shoots: [], quotes: [], notes: [],
     attachments: [],
     aiOutreach: '',
+    aiPreShootBrief: '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     addedByUserId: u.id
@@ -931,11 +900,6 @@ function renderSitterForm(p) {
         <div class="text-dim" style="margin-top:2px;font-size:12px">Signed releases, ID copies, reference photos, contracts. Stored locally in this browser.</div>
       </div>
       <div class="btn-row">
-        ${(state.templates || []).length ? `<select id="st_templatePicker" class="btn-sm" style="padding:5px 10px">
-          <option value="">Use template…</option>
-          ${state.templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}${t.tag ? ' · ' + escapeHtml(t.tag) : ''}</option>`).join('')}
-        </select>
-        <button class="btn-sm" onclick="applyTemplateToSubject()">Apply</button>` : ''}
         <button class="btn-sm btn-primary" onclick="addSubjectAttachment()">Upload file</button>
       </div>
     </div>
@@ -943,6 +907,7 @@ function renderSitterForm(p) {
 
     <div class="divider"></div>
     <div id="aiOutreachOutput"></div>
+    <div id="aiBriefOutput"></div>
   `;
 }
 
@@ -987,24 +952,6 @@ async function addSubjectAttachment() {
   refreshAttachmentsListUI();
 }
 
-async function applyTemplateToSubject() {
-  if (!workingSitter) return;
-  const sel = document.getElementById('st_templatePicker');
-  if (!sel || !sel.value) return;
-  const t = (state.templates || []).find(x => x.id === sel.value);
-  if (!t) return;
-  try {
-    const src = await attGet(t.attachmentId);
-    if (!src) { showToast('Template blob not found.', { tone: 'danger' }); return; }
-    const id = await attPut(src.blob, { ownerType: 'sitter', ownerId: workingSitter.id, name: t.name, mime: t.mime, size: t.size, sourceTemplateId: t.id });
-    if (!workingSitter.attachments) workingSitter.attachments = [];
-    workingSitter.attachments.push({ id, name: t.name, mime: t.mime, size: t.size, addedAt: new Date().toISOString(), fromTemplate: t.tag || 'template' });
-    sel.value = '';
-    refreshAttachmentsListUI();
-    showToast(`Template "${t.name}" attached`);
-  } catch (e) { showToast('Could not apply template: ' + e.message, { tone: 'danger' }); }
-}
-
 async function removeAttachmentFrom(ctx, attId) {
   if (ctx === 'subject') {
     if (!workingSitter || !workingSitter.attachments) return;
@@ -1016,14 +963,6 @@ async function removeAttachmentFrom(ctx, attId) {
     workingSeries.moodboard = workingSeries.moodboard.filter(a => a.id !== attId);
     try { await attDelete(attId); } catch (_) {}
     refreshMoodboardUI();
-  } else if (ctx === 'template') {
-    const t = (state.templates || []).find(x => x.id === attId);
-    if (!t) return;
-    state.templates = state.templates.filter(x => x.id !== attId);
-    try { await attDelete(t.attachmentId); } catch (_) {}
-    saveState();
-    renderSettings();
-    showToast(`Template "${t.name}" deleted`);
   }
 }
 
@@ -1072,31 +1011,6 @@ async function addMoodboardImages(seriesId) {
   s.updatedAt = new Date().toISOString();
   saveState();
   refreshMoodboardUI();
-}
-
-async function addTemplate() {
-  const files = await pickFiles({});
-  if (!files.length) return;
-  const file = files[0];
-  const name = prompt('Name this template (e.g., "BJP standard release"):', file.name) || file.name;
-  const tag = prompt('Tag (release / contract / NDA / other) — optional:', 'release') || '';
-  try {
-    const attachmentId = await attPut(file, { ownerType: 'template', name: file.name, mime: file.type, size: file.size });
-    if (!state.templates) state.templates = [];
-    const t = {
-      id: uid('tpl'),
-      attachmentId,
-      name,
-      tag,
-      mime: file.type,
-      size: file.size,
-      addedAt: new Date().toISOString()
-    };
-    state.templates.push(t);
-    saveState();
-    renderSettings();
-    showToast(`Template "${name}" saved`);
-  } catch (e) { showToast('Could not save template: ' + e.message, { tone: 'danger' }); }
 }
 
 function refreshMoodboardUI() {
@@ -1533,66 +1447,11 @@ function renderSettings() {
     document.getElementById('setTeam').value = u.team || '';
     document.getElementById('setRole').value = u.role || 'owner';
   }
-  const list = document.getElementById('collaboratorsList');
-  if (state.users.length <= 1) {
-    list.innerHTML = '<div class="text-dim" style="font-style:italic;font-size:13px">No collaborators yet.</div>';
-  } else {
-    list.innerHTML = state.users.filter(u => u.id !== state.currentUserId).map(u => `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
-        <div class="flex-row">
-          <div class="user-avatar">${avatarFor(u)}</div>
-          <div>
-            <div style="font-weight:500;font-size:13px">${escapeHtml(u.name)}</div>
-            <div class="text-muted" style="font-size:12px">${escapeHtml(u.email || '')} · ${escapeHtml(u.role)}</div>
-          </div>
-        </div>
-        <button class="btn-sm btn-danger" onclick="removeCollaborator('${u.id}')">Remove</button>
-      </div>
-    `).join('');
-  }
-
-  // Templates
-  const tlist = document.getElementById('templatesList');
-  if (tlist) {
-    const ts = state.templates || [];
-    if (ts.length === 0) {
-      tlist.innerHTML = '<div class="text-dim" style="font-style:italic;font-size:13px">No templates yet. Upload a blank release form, contract, or NDA to reuse it across subjects.</div>';
-    } else {
-      tlist.innerHTML = '<div style="display:flex;flex-direction:column;gap:6px">' + ts.map(t => `
-        <div class="flex-between" style="background:var(--surface-raised);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
-          <div style="min-width:0;display:flex;align-items:center;gap:10px;flex:1">
-            <div style="font-size:18px;width:22px;text-align:center;color:var(--text-muted)">${fileIsImage(t.mime) ? '◧' : '◼'}</div>
-            <div style="min-width:0;flex:1">
-              <div style="font-size:13px;font-weight:500">${escapeHtml(t.name)}${t.tag ? ` <span class="dim-type-pill" style="margin-left:6px">${escapeHtml(t.tag)}</span>` : ''}</div>
-              <div class="text-muted" style="font-size:11px;font-family:var(--font-mono)">${escapeHtml(t.mime || 'file')} · ${fmtFileSize(t.size)}</div>
-            </div>
-          </div>
-          <div class="btn-row">
-            <button class="btn-sm btn-ghost" onclick="attOpen('${t.attachmentId}')">Open</button>
-            <button class="btn-sm btn-ghost" onclick="attDownload('${t.attachmentId}', ${JSON.stringify(t.name)})">Download</button>
-            <button class="btn-sm btn-ghost btn-danger" onclick="removeAttachmentFrom('template', '${t.id}')">Remove</button>
-          </div>
-        </div>
-      `).join('') + '</div>';
-    }
-  }
   document.getElementById('apiKey').value = state.settings.apiKey || '';
   document.getElementById('apiModel').value = state.settings.apiModel || 'claude-opus-4-6';
   updateApiStatusPill();
 }
 
-function removeCollaborator(uid) {
-  const u = state.users.find(x => x.id === uid);
-  if (!u) return;
-  const snap = JSON.parse(JSON.stringify(u));
-  state.users = state.users.filter(x => x.id !== uid);
-  logActivity('user_removed', 'Removed collaborator ' + u.name, 'user', uid);
-  saveState();
-  renderAll();
-  showToast(`Collaborator "${u.name}" removed`, {
-    undo: () => { state.users.push(snap); saveState(); renderAll(); }
-  });
-}
 
 // =====================================================
 // CLAUDE API (streaming + prompt caching)
@@ -1876,6 +1735,106 @@ Use the photographer's voice (first person). No marketing speak. No fluff.`;
   }
 }
 
+async function aiPreShootBrief() {
+  if (!workingSitter) return;
+  if (!workingSitter.name || !workingSitter.story) {
+    showToast('Add at least a name and a story paragraph before generating a pre-shoot brief.', { tone: 'danger' });
+    return;
+  }
+  const series = state.series.find(s => s.id === workingSitter.seriesId);
+  const btn = document.getElementById('aiBriefBtn');
+  if (!btn) return;
+  const orig = btn.textContent;
+  btn.textContent = 'Drafting…'; btn.disabled = true;
+
+  const out = document.getElementById('aiBriefOutput');
+  out.innerHTML = '<div class="text-dim" style="font-size:13px">Synthesizing the brief…</div>';
+
+  try {
+    const sys = `You write pre-shoot briefs for documentary photographers — a one-page document the photographer will print or read on the way to a sitting. The brief is concrete, calm, and shoot-day useful. Avoid fluff, marketing language, and abstract praise. Keep the photographer's own voice; first person.
+
+Structure (use these exact headings, plain text, no markdown):
+
+VISUAL APPROACH
+2–3 sentences. Tie the sitter's story to the series' visual style notes. Light, palette, framing approach for THIS person specifically.
+
+LOCATIONS & SETTINGS
+3–5 bullet candidates that come from the sitter's actual life — the spaces named in their story, the places they spend time. Be specific.
+
+WHAT TO LOOK FOR
+3–5 bullets of details, objects, gestures, or rituals to watch for in their environment that carry the wider truth. Hands at work. Things they keep on a shelf. Routines.
+
+CONVERSATION OPENERS
+3–5 specific questions the photographer can ask while setting up. They should pull on the actual story (not generic small talk) and produce quotes worth keeping.
+
+SHOT LIST (provisional)
+4–6 numbered frame ideas. Each one short — subject + setting + light + frame intent. The photographer will deviate from the list, but it gives them a starting plan.
+
+LOGISTICS
+1–3 lines: the kit/film stock from the series notes (use the photographer's actual gear), anything to bring (release form, contact sheet from a previous sitting if relevant), things to confirm before arrival.
+
+Total length: 350–500 words. No preamble before VISUAL APPROACH. No closing remarks after LOGISTICS.`;
+
+    let user = '';
+    if (series) {
+      user += 'SERIES: ' + series.name + '\n';
+      user += 'SERIES THESIS: ' + (series.thesis || '[no thesis]') + '\n';
+      if (series.visualStyleNotes) user += 'VISUAL STYLE NOTES: ' + series.visualStyleNotes + '\n';
+      if (series.cameras) user += 'CAMERAS: ' + series.cameras + '\n';
+      if (series.filmStocks) user += 'FILM STOCKS: ' + series.filmStocks + '\n';
+      if (series.lenses) user += 'LENSES: ' + series.lenses + '\n';
+      user += '\n';
+    }
+    user += 'SUBJECT: ' + workingSitter.name + '\n';
+    if (workingSitter.pronouns) user += 'PRONOUNS: ' + workingSitter.pronouns + '\n';
+    user += 'LOCATION: ' + (workingSitter.location || '[unknown]') + '\n';
+    user += 'STATUS: ' + workingSitter.status + '\n';
+    if (workingSitter.meetingContext) user += 'HOW WE MET: ' + workingSitter.meetingContext + '\n';
+    if (workingSitter.widerTruth) user += 'WIDER TRUTH (what they exemplify): ' + workingSitter.widerTruth + '\n';
+    user += '\nSUBJECT STORY:\n' + workingSitter.story + '\n';
+    if (workingSitter.preShootNotes) user += '\nEXISTING PRE-SHOOT NOTES (incorporate these, expand on them — do not contradict):\n' + workingSitter.preShootNotes + '\n';
+    if (workingSitter.quotes && workingSitter.quotes.length) user += '\nQUOTES ON FILE: ' + workingSitter.quotes.join(' / ') + '\n';
+    user += '\nDraft the pre-shoot brief.';
+
+    let final = '';
+    out.innerHTML = `
+      <div class="gap-suggestion" style="margin-top:14px">
+        <div class="gap-title">AI pre-shoot brief</div>
+        <div class="ai-stream" id="aiBriefStream"></div>
+      </div>`;
+    const body = document.getElementById('aiBriefStream');
+    await callClaudeStream(sys, user, {
+      maxTokens: 1500,
+      onChunk: (_t, full) => { body.textContent = full; final = full; }
+    });
+    body.classList.add('done');
+    workingSitter.aiPreShootBrief = (final || '').trim();
+    body.insertAdjacentHTML('afterend', `<div class="btn-row" style="margin-top:10px"><button type="button" class="btn-sm" onclick="copyPreShootBrief()">Copy to clipboard</button><button type="button" class="btn-sm" onclick="appendBriefToPreShootNotes()">Append to pre-shoot notes</button></div>`);
+  } catch (e) {
+    out.innerHTML = `<div style="color:var(--danger);font-size:13px">Error: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.textContent = orig; btn.disabled = false;
+  }
+}
+
+function copyPreShootBrief() {
+  if (!workingSitter || !workingSitter.aiPreShootBrief) return;
+  navigator.clipboard.writeText(workingSitter.aiPreShootBrief).then(
+    () => showToast('Brief copied to clipboard.'),
+    () => showToast('Could not copy.', { tone: 'danger' })
+  );
+}
+
+function appendBriefToPreShootNotes() {
+  if (!workingSitter || !workingSitter.aiPreShootBrief) return;
+  const ta = document.getElementById('st_preNotes');
+  if (!ta) return;
+  const existing = ta.value.trim();
+  ta.value = (existing ? existing + '\n\n' : '') + workingSitter.aiPreShootBrief;
+  workingSitter.preShootNotes = ta.value;
+  showToast('Brief appended to pre-shoot notes.');
+}
+
 function copyOutreach() {
   if (!workingSitter || !workingSitter.aiOutreach) return;
   navigator.clipboard.writeText(workingSitter.aiOutreach).then(
@@ -2065,7 +2024,6 @@ function collectAttachmentIds() {
   const ids = new Set();
   (state.sitters || []).forEach(p => (p.attachments || []).forEach(a => ids.add(a.id)));
   (state.series || []).forEach(s => (s.moodboard || []).forEach(m => ids.add(m.id)));
-  (state.templates || []).forEach(t => { if (t.attachmentId) ids.add(t.attachmentId); });
   return [...ids];
 }
 
@@ -2385,10 +2343,6 @@ function seedDemoData() {
     { id: uid('dl'), name: 'Open Eye Gallery exhibition pitch', date: future(40), type: 'exhibition', relatedSeriesId: s2.id, notes: 'Liverpool. Send 8-image edit + 600-word statement to Sarah at Open Eye.' }
   );
 
-  // Demo collaborator so Settings → Collaborators isn't empty.
-  const collab = { id: uid('u'), name: 'Lara Suarez', email: 'lara@example.com', team: u.team || 'Solo', role: 'editor' };
-  if (!state.users.find(x => x.email === collab.email)) state.users.push(collab);
-
   // Backfill rich activity history (older first, will appear newest-first via unshift order).
   const past = (daysAgo, hour = 9) => {
     const d = new Date(); d.setDate(d.getDate() - daysAgo); d.setHours(hour, 0, 0, 0);
@@ -2402,17 +2356,16 @@ function seedDemoData() {
     { type: 'series_created', entityType: 'series', entityId: s2.id, summary: 'Created series: Basketball Life UK', at: past(54) },
     { type: 'sitter_added', entityType: 'sitter', summary: 'Added subject: Beatriz Fernandes', at: past(48) },
     { type: 'sitter_updated', entityType: 'sitter', summary: 'Beatriz Fernandes moved to Published', at: past(40) },
-    { type: 'user_added', userId: u.id, entityType: 'user', entityId: collab.id, summary: 'Added collaborator: Lara Suarez', at: past(36) },
     { type: 'sitter_added', entityType: 'sitter', summary: 'Added subject: Maria Gonzalez', at: past(28) },
     { type: 'sitter_updated', entityType: 'sitter', summary: 'Maria Gonzalez release form signed', at: past(22) },
-    { type: 'sitter_added', userId: collab.id, entityType: 'sitter', summary: 'Added subject: Coach Anika Owusu', at: past(20) },
+    { type: 'sitter_added', entityType: 'sitter', summary: 'Added subject: Coach Anika Owusu', at: past(20) },
     { type: 'deadline_added', entityType: 'deadline', summary: 'Added deadline: POB Vol. 9 submission window opens', at: past(14) },
     { type: 'sitter_updated', entityType: 'sitter', summary: 'Sofía Quintero moved to In lab', at: past(4) },
     { type: 'ai_run', entityType: 'series', entityId: s1.id, summary: 'Ran AI gap analysis on Latinos in the UK', at: past(2, 16) },
     { type: 'sitter_added', entityType: 'sitter', summary: 'Added subject: Ana Rivera', at: past(1, 11) }
   ]);
 
-  logActivity('demo_seeded', `Seeded demo data (2 series, ${sitters.length} subjects, 12 deadlines, 1 collaborator)`, 'system', '');
+  logActivity('demo_seeded', `Seeded demo data (2 series, ${sitters.length} subjects, 12 deadlines)`, 'system', '');
   saveState();
   renderAll();
   showToast('Demo data added. Open Series → Latinos in the UK to see coverage.');

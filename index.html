@@ -54,13 +54,12 @@
         <svg id="themeIcon" viewBox="0 0 24 24" fill="none"></svg>
         Toggle theme
       </button>
-      <div class="user-row" onclick="openUserMenu()">
+      <div class="user-row" style="cursor:default">
         <div class="user-avatar" id="userAvatar">M</div>
         <div style="min-width:0;flex:1">
           <div style="font-weight:500;font-size:13px" id="userName">Matthew</div>
           <div class="text-muted" style="font-size:11px" id="userTeam">Solo</div>
         </div>
-        <svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px;color:var(--text-muted)"><path d="M8 9l4-4 4 4M8 15l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
     </div>
   </aside>
@@ -277,24 +276,6 @@
           <button class="btn-primary btn-sm" onclick="saveProfile()">Save profile</button>
         </div>
 
-        <h2 class="section-title">Collaborators</h2>
-        <div class="card">
-          <div class="text-dim" style="margin-bottom:14px;font-size:13px">Invite collaborators (editors, picture editors, project advisors). For now this is local only.</div>
-          <div id="collaboratorsList" style="margin-bottom:14px"></div>
-          <div class="btn-row">
-            <button class="btn-sm" onclick="addCollaborator()">Add collaborator</button>
-          </div>
-        </div>
-
-        <h2 class="section-title">Document templates</h2>
-        <div class="card">
-          <div class="text-dim" style="margin-bottom:14px;font-size:13px">Reusable docs — blank release forms, model contracts, NDAs. Apply one to any subject in a single click; the original template stays unchanged.</div>
-          <div id="templatesList" style="margin-bottom:14px"></div>
-          <div class="btn-row">
-            <button class="btn-sm btn-primary" onclick="addTemplate()">Upload template</button>
-          </div>
-        </div>
-
         <h2 class="section-title">AI assist (Anthropic Claude)</h2>
         <div class="card">
           <div class="flex-between" style="margin-bottom:8px">
@@ -350,20 +331,6 @@
 </div>
 
 <!-- ================ MODALS ================ -->
-<div class="modal-backdrop" id="userMenuModal">
-  <div class="modal modal-narrow">
-    <div class="modal-header">
-      <strong>Switch user</strong>
-      <button class="btn-ghost modal-close" onclick="closeModal('userMenuModal')">Close</button>
-    </div>
-    <div class="modal-body">
-      <ul class="menu-list" id="userMenuList"></ul>
-      <div style="margin-top:14px">
-        <button class="btn-sm" onclick="addCollaborator()">Add new user</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <div class="modal-backdrop" id="seriesModal">
   <div class="modal modal-wide">
@@ -406,6 +373,7 @@
       <div class="spacer"></div>
       <button class="btn-ai" onclick="aiStoryCoach()" id="aiCoachBtn">AI story coach</button>
       <button class="btn-ai" onclick="aiOutreach()" id="aiOutreachBtn">AI outreach draft</button>
+      <button class="btn-ai" onclick="aiPreShootBrief()" id="aiBriefBtn">AI pre-shoot brief</button>
       <button class="btn-ghost" onclick="closeModal('sitterModal')">Cancel</button>
       <button class="btn-primary" onclick="saveSitter()">Save</button>
     </div>
