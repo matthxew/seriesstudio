@@ -22,8 +22,8 @@ const STATUSES = [
 const DIMENSION_TYPES = [
   { id: 'categorical_targets', name: 'Categorical with targets', help: 'Discrete options with target counts; coverage shows actual vs target.' },
   { id: 'categorical_open', name: 'Categorical (free)', help: 'Discrete options without targets; coverage shows distribution.' },
-  { id: 'numerical', name: 'Numerical (e.g., age)', help: 'Numeric value per sitter; coverage shows distribution.' },
-  { id: 'text', name: 'Free text', help: 'Free-form per sitter; not aggregated.' }
+  { id: 'numerical', name: 'Numerical (e.g., age)', help: 'Numeric value per subject; coverage shows distribution.' },
+  { id: 'text', name: 'Free text', help: 'Free-form per subject; not aggregated.' }
 ];
 
 let state = loadState();
@@ -151,7 +151,7 @@ function switchTab(name) {
   activeTab = name;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.tab === name));
   document.querySelectorAll('.panel').forEach(el => el.classList.toggle('active', el.id === 'panel-' + name));
-  const titles = { dashboard: 'Dashboard', series: 'Series', sitters: 'Sitters', calendar: 'Calendar', activity: 'Activity', settings: 'Settings' };
+  const titles = { dashboard: 'Dashboard', series: 'Series', sitters: 'Subjects', calendar: 'Calendar', activity: 'Activity', settings: 'Settings' };
   const crumb = document.getElementById('crumb');
   if (crumb) crumb.textContent = titles[name] || name;
 }
@@ -246,7 +246,7 @@ function renderSeriesForm(s) {
         <input type="text" id="ser_name" value="${escapeHtml(s.name)}" placeholder="e.g., Latinos in the UK">
       </div>
       <div class="form-group">
-        <label>Target sitter count</label>
+        <label>Target subject count</label>
         <input type="number" id="ser_target" value="${s.targetSitterCount || 12}" min="1">
       </div>
     </div>
@@ -494,7 +494,7 @@ function renderSeriesDetail(s) {
         <div>
           <div class="label">Series progress</div>
           <div class="value">${finalized} <span style="color:var(--text-muted)">/ ${s.targetSitterCount || 12}</span></div>
-          <div class="sub">finalized sitters out of target</div>
+          <div class="sub">finalized subjects out of target</div>
         </div>
         <div style="text-align:right;min-width:200px">
           <div class="text-muted" style="font-size:11px;font-family:var(--font-mono)">${progress}% to goal</div>
@@ -529,7 +529,7 @@ function renderSeriesDetail(s) {
     ` : ''}
 
     <h3 style="margin:24px 0 8px">Coverage by dimension</h3>
-    <div class="text-dim" style="margin-bottom:14px;font-size:13px">How your sitters distribute across the dimensions you defined for this series.</div>
+    <div class="text-dim" style="margin-bottom:14px;font-size:13px">How your subjects distribute across the dimensions you defined for this series.</div>
     ${renderCoverage(s, sitters)}
 
     <div style="margin-top:24px">
@@ -537,12 +537,12 @@ function renderSeriesDetail(s) {
         <h3 style="margin:0">AI gap analysis</h3>
         <button class="btn-primary btn-sm" onclick="aiGapAnalysis('${s.id}')" id="gapAnalysisBtn">Run AI gap analysis</button>
       </div>
-      <div id="gapAnalysisOutput" class="text-dim" style="font-size:13px">Click the button to ask Claude what your project is structurally missing, given the thesis and current sitter mix. Requires API key in Settings.</div>
+      <div id="gapAnalysisOutput" class="text-dim" style="font-size:13px">Click the button to ask Claude what your project is structurally missing, given the thesis and current subject mix. Requires API key in Settings.</div>
     </div>
 
-    <h3 style="margin:28px 0 10px">Sitters in this series <span class="text-muted" style="font-family:var(--font-mono);font-size:12px;font-weight:400">${sitters.length}</span></h3>
+    <h3 style="margin:28px 0 10px">Subjects in this series <span class="text-muted" style="font-family:var(--font-mono);font-size:12px;font-weight:400">${sitters.length}</span></h3>
     <div class="btn-row" style="margin-bottom:10px">
-      <button class="btn-primary btn-sm" onclick="closeModal('seriesDetailModal'); openSitterModal(null, '${s.id}')">Add sitter to this series</button>
+      <button class="btn-primary btn-sm" onclick="closeModal('seriesDetailModal'); openSitterModal(null, '${s.id}')">Add subject to this series</button>
     </div>
     ${renderSitterListCompact(sitters)}
   `;
@@ -634,13 +634,13 @@ function renderTextCoverage(d, sitters) {
   const vals = sitters.map(p => p.dimensionValues && p.dimensionValues[d.id]).filter(v => v && v.trim());
   let html = `<div class="card" style="margin-bottom:12px"><div style="font-weight:500;font-size:14px;margin-bottom:6px">${escapeHtml(d.name)}</div>`;
   if (d.description) html += `<div class="text-dim" style="font-size:12px;margin-bottom:12px">${escapeHtml(d.description)}</div>`;
-  html += `<div class="text-dim" style="font-size:13px">${vals.length} sitter(s) have a value. Free-text dimensions are not aggregated.</div>`;
+  html += `<div class="text-dim" style="font-size:13px">${vals.length} subject(s) have a value. Free-text dimensions are not aggregated.</div>`;
   html += '</div>';
   return html;
 }
 
 function renderSitterListCompact(sitters) {
-  if (sitters.length === 0) return '<div class="text-dim" style="font-style:italic;font-size:13px">No sitters yet.</div>';
+  if (sitters.length === 0) return '<div class="text-dim" style="font-style:italic;font-size:13px">No subjects yet.</div>';
   return '<div>' + sitters.map(p => `
     <div onclick="closeModal('seriesDetailModal'); openSitterModal('${p.id}')" class="sitter-row" style="grid-template-columns:1fr 120px">
       <div>
@@ -693,7 +693,7 @@ function renderSitterForm(p) {
   return `
     <div class="form-row">
       <div class="form-group">
-        <label>Sitter name</label>
+        <label>Subject name</label>
         <input type="text" id="st_name" value="${escapeHtml(p.name)}" placeholder="Full name">
       </div>
       <div class="form-group">
@@ -726,7 +726,7 @@ function renderSitterForm(p) {
     </div>
     <div class="form-group">
       <label>The wider truth they exemplify</label>
-      <textarea id="st_widerTruth" placeholder="What wider story does this sitter carry? AI story coach can help refine this." style="min-height:60px">${escapeHtml(p.widerTruth)}</textarea>
+      <textarea id="st_widerTruth" placeholder="What wider story does this subject carry? AI story coach can help refine this." style="min-height:60px">${escapeHtml(p.widerTruth)}</textarea>
     </div>
     <div class="form-group">
       <label>Their story</label>
@@ -794,7 +794,7 @@ function renderSitterForm(p) {
     </div>
 
     <div class="divider"></div>
-    <strong style="font-size:14px">Sitter quotes</strong>
+    <strong style="font-size:14px">Subject quotes</strong>
     <div class="text-dim" style="margin-bottom:10px;font-size:12px">Direct quotes — used in captions. One per line.</div>
     <textarea id="st_quotes" placeholder="One quote per line." style="min-height:80px">${escapeHtml((p.quotes || []).join('\n'))}</textarea>
 
@@ -853,10 +853,10 @@ function saveSitter() {
   if (editingSitterId) {
     const idx = state.sitters.findIndex(p => p.id === editingSitterId);
     if (idx >= 0) state.sitters[idx] = workingSitter;
-    logActivity('sitter_updated', 'Updated sitter: ' + workingSitter.name, 'sitter', workingSitter.id);
+    logActivity('sitter_updated', 'Updated subject: ' + workingSitter.name, 'sitter', workingSitter.id);
   } else {
     state.sitters.push(workingSitter);
-    logActivity('sitter_added', 'Added sitter: ' + workingSitter.name, 'sitter', workingSitter.id);
+    logActivity('sitter_added', 'Added subject: ' + workingSitter.name, 'sitter', workingSitter.id);
   }
   saveState();
   closeModal('sitterModal');
@@ -869,11 +869,11 @@ function deleteSitter() {
   if (!p) return;
   const snap = JSON.parse(JSON.stringify(p));
   state.sitters = state.sitters.filter(x => x.id !== editingSitterId);
-  logActivity('sitter_deleted', 'Deleted sitter: ' + p.name, 'sitter', editingSitterId);
+  logActivity('sitter_deleted', 'Deleted subject: ' + p.name, 'sitter', editingSitterId);
   saveState();
   closeModal('sitterModal');
   renderAll();
-  showToast(`Sitter "${p.name}" deleted`, {
+  showToast(`Subject "${p.name}" deleted`, {
     undo: () => { state.sitters.push(snap); logActivity('sitter_restored', 'Restored sitter: ' + p.name, 'sitter', p.id); saveState(); renderAll(); }
   });
 }
@@ -993,7 +993,7 @@ function renderSitters() {
 function renderSittersListMode(list) {
   const target = document.getElementById('sittersListView');
   if (list.length === 0) {
-    target.innerHTML = '<div class="empty"><h3>No sitters match</h3><p>Adjust filters or add a new sitter.</p></div>';
+    target.innerHTML = '<div class="empty"><h3>No subjects match</h3><p>Adjust filters or add a new subject.</p></div>';
     return;
   }
   target.innerHTML = '<div>' + list.map(p => {
@@ -1107,7 +1107,7 @@ function seriesCard(s) {
       <div class="series-name">${escapeHtml(s.name)}</div>
       <div class="series-thesis">${escapeHtml((s.thesis || 'No thesis yet').slice(0, 140))}${(s.thesis || '').length > 140 ? '...' : ''}</div>
       <div class="flex-between" style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">
-        <div>${sitters.length} sitter${sitters.length === 1 ? '' : 's'}</div>
+        <div>${sitters.length} subject${sitters.length === 1 ? '' : 's'}</div>
         <div>${finalized}/${target} finalized</div>
       </div>
       <div class="series-progress-track"><div class="series-progress-fill" style="width:${progress}%"></div></div>
@@ -1408,14 +1408,14 @@ async function aiGapAnalysis(seriesId) {
   try {
     const sys = `You are an expert documentary photography editor and project mentor. You help photographers identify structural gaps in their long-term projects so the body of work stays balanced, representative, and faithful to its stated thesis.
 
-Be concrete, kind, and specific. Use the photographer's own language. Suggest concrete sitter types or settings to add (with examples), name the dimension(s) where the gap is, and prioritize the top 3 to 5 gaps.
+Be concrete, kind, and specific. Use the photographer's own language. Suggest concrete subject types or settings to add (with examples), name the dimension(s) where the gap is, and prioritize the top 3 to 5 gaps.
 
 Output as plain prose, no JSON, no markdown headers, around 200 to 350 words. Use short paragraphs.`;
 
     let user = 'SERIES NAME: ' + s.name + '\n\n';
     user += 'SERIES THESIS: ' + (s.thesis || '[no thesis]') + '\n\n';
-    user += 'TARGET SITTER COUNT: ' + (s.targetSitterCount || 12) + '\n';
-    user += 'CURRENT SITTER COUNT: ' + sitters.length + '\n';
+    user += 'TARGET SUBJECT COUNT: ' + (s.targetSitterCount || 12) + '\n';
+    user += 'CURRENT SUBJECT COUNT: ' + sitters.length + '\n';
     if (s.outputGoals) user += 'OUTPUT GOALS: ' + s.outputGoals + '\n';
     user += '\nDIMENSIONS THE PHOTOGRAPHER IS TRACKING:\n';
     (s.dimensions || []).forEach(d => {
@@ -1436,11 +1436,11 @@ Output as plain prose, no JSON, no markdown headers, around 200 to 350 words. Us
         user += '\n  Values: ' + vals.join(', ') + '\n';
       } else { user += '\n'; }
     });
-    user += '\nCURRENT SITTERS (brief):\n';
+    user += '\nCURRENT SUBJECTS (brief):\n';
     sitters.forEach(p => {
       user += '- ' + p.name + ' (' + (p.location || 'no location') + ', status: ' + p.status + '): ' + (p.widerTruth || 'no wider truth set').slice(0, 120) + '\n';
     });
-    user += '\nTask: Identify the top 3 to 5 structural gaps in this series. For each gap, name the dimension(s) involved, explain why it matters given the thesis, and suggest 1 to 2 concrete sitter types or settings the photographer could add.';
+    user += '\nTask: Identify the top 3 to 5 structural gaps in this series. For each gap, name the dimension(s) involved, explain why it matters given the thesis, and suggest 1 to 2 concrete subject types or settings the photographer could add.';
 
     await callClaudeStream(sys, user, {
       maxTokens: 1200,
@@ -1466,7 +1466,7 @@ async function aiStoryCoach() {
   btn.textContent = 'Coaching...'; btn.disabled = true;
 
   try {
-    const sys = `You help documentary photographers articulate the WIDER TRUTH a single sitter exemplifies. Given the sitter's story and the series thesis, write a single sentence (max 30 words) that captures what wider truth this sitter carries. The sentence should:
+    const sys = `You help documentary photographers articulate the WIDER TRUTH a single subject exemplifies. Given the subject's story and the series thesis, write a single sentence (max 30 words) that captures what wider truth this subject carries. The sentence should:
 - Be specific, not generic.
 - Tie to the series thesis.
 - Avoid abstractions like "the human condition." Name the actual social, political, or cultural reality.
@@ -1504,7 +1504,7 @@ async function aiOutreach() {
   btn.textContent = 'Drafting...'; btn.disabled = true;
 
   try {
-    const sys = `You draft warm, respectful first-contact outreach messages from a documentary photographer to a potential sitter. The tone is:
+    const sys = `You draft warm, respectful first-contact outreach messages from a documentary photographer to a potential subject. The tone is:
 - Personal, never transactional.
 - Project-rationale-led, not portfolio-led.
 - Honest about why you want to photograph THIS person.
@@ -1595,7 +1595,7 @@ function buildCommands() {
     { section: 'Create', label: 'New deadline', icon: 'plus', run: () => openDeadlineModal() },
     { section: 'Navigate', label: 'Go to Dashboard', icon: 'arrow', run: () => switchTab('dashboard') },
     { section: 'Navigate', label: 'Go to Series', icon: 'arrow', run: () => switchTab('series') },
-    { section: 'Navigate', label: 'Go to Sitters', icon: 'arrow', run: () => switchTab('sitters') },
+    { section: 'Navigate', label: 'Go to Subjects', icon: 'arrow', run: () => switchTab('sitters') },
     { section: 'Navigate', label: 'Go to Calendar', icon: 'arrow', run: () => switchTab('calendar') },
     { section: 'Navigate', label: 'Go to Activity', icon: 'arrow', run: () => switchTab('activity') },
     { section: 'Navigate', label: 'Go to Settings', icon: 'arrow', run: () => switchTab('settings') },
@@ -1763,7 +1763,7 @@ function wipeData() {
 // =====================================================
 function seedDemoData() {
   if (state.series.length > 0 || state.sitters.length > 0) {
-    if (!confirm('Seed will add demo series and sitters on top of existing data. Continue?')) return;
+    if (!confirm('Seed will add demo series and subjects on top of existing data. Continue?')) return;
   }
   const u = getCurrentUser();
   const now = new Date().toISOString();
@@ -1776,7 +1776,7 @@ function seedDemoData() {
     targetSitterCount: 12,
     targetCompletionDate: '2026-08-01',
     outputGoals: 'POB Vol. 9 + microsite + zine',
-    visualStyleNotes: 'Environmental portraits in sitter spaces, available natural light, 35mm color, classical straightforward portrait grammar.',
+    visualStyleNotes: 'Environmental portraits in subject spaces, available natural light, 35mm color, classical straightforward portrait grammar.',
     cameras: 'Mamiya 7II, Leica M6',
     filmStocks: 'Kodak Portra 400, Kodak Portra 800, Ilford HP5+',
     lenses: '80mm f/4 (Mamiya), 35mm f/2 Summicron',
@@ -1918,7 +1918,7 @@ function seedDemoData() {
       story: 'Beatriz, 36, first-gen Brazilian. Moved to London in 2009 for an MA at Goldsmiths and stayed. Three poetry collections published in the UK; the second won a Forward Prize shortlist nod. Translates between Portuguese and English. Lives above the Stockwell Brazilian bakery.',
       status: 'published', lastContactedAt: '2025-09-12', lastShotAt: '2025-11-04',
       contactEmail: 'beatriz.fernandes@example.com', contactPhone: '+44 7700 900777', contactSocial: '@bea.fernandes',
-      preShootNotes: 'Already shot. Final image ran in BJP Vol. 8. Keep contact warm — she could open doors to the broader Brazilian literary community for follow-up sitters.',
+      preShootNotes: 'Already shot. Final image ran in BJP Vol. 8. Keep contact warm — she could open doors to the broader Brazilian literary community for follow-up subjects.',
       release: { status: 'signed', sentAt: '2025-10-15', signedAt: '2025-10-22', notes: 'Signed digital + paper. Image rights cleared for editorial and exhibition through 2030.' },
       dimensionValues: { [s1.dimensions[0].id]: '1st gen (born outside UK)', [s1.dimensions[1].id]: 'London', [s1.dimensions[2].id]: 'Brazil', [s1.dimensions[3].id]: '36' },
       quotes: ['When the British call my work universal, what they mean is they don\'t want to know it\'s Brazilian.', 'I write in English now. The Portuguese hides in the line breaks.'],
@@ -1951,7 +1951,7 @@ function seedDemoData() {
       status: 'declined', lastContactedAt: '2026-03-08',
       contactEmail: 'tomas.a@example.com', contactPhone: '', contactSocial: '',
       preShootNotes: 'Declined. Keep the door open — he was thoughtful, not hostile. If the project moves into a quieter, anonymised mode later, revisit.',
-      release: { status: 'not_sent', sentAt: '', signedAt: '', notes: 'N/A — sitter declined participation.' },
+      release: { status: 'not_sent', sentAt: '', signedAt: '', notes: 'N/A — subject declined participation.' },
       dimensionValues: { [s1.dimensions[0].id]: '1st gen (born outside UK)', [s1.dimensions[1].id]: 'Other', [s1.dimensions[2].id]: 'Argentina', [s1.dimensions[3].id]: '52' },
       quotes: [] }
   ];
@@ -1994,19 +1994,19 @@ function seedDemoData() {
   seedActivity([
     { type: 'series_created', entityType: 'series', entityId: s1.id, summary: 'Created series: Latinos in the UK', at: past(58) },
     { type: 'series_created', entityType: 'series', entityId: s2.id, summary: 'Created series: Basketball Life UK', at: past(54) },
-    { type: 'sitter_added', entityType: 'sitter', summary: 'Added sitter: Beatriz Fernandes', at: past(48) },
+    { type: 'sitter_added', entityType: 'sitter', summary: 'Added subject: Beatriz Fernandes', at: past(48) },
     { type: 'sitter_updated', entityType: 'sitter', summary: 'Beatriz Fernandes moved to Published', at: past(40) },
     { type: 'user_added', userId: u.id, entityType: 'user', entityId: collab.id, summary: 'Added collaborator: Lara Suarez', at: past(36) },
-    { type: 'sitter_added', entityType: 'sitter', summary: 'Added sitter: Maria Gonzalez', at: past(28) },
+    { type: 'sitter_added', entityType: 'sitter', summary: 'Added subject: Maria Gonzalez', at: past(28) },
     { type: 'sitter_updated', entityType: 'sitter', summary: 'Maria Gonzalez release form signed', at: past(22) },
-    { type: 'sitter_added', userId: collab.id, entityType: 'sitter', summary: 'Added sitter: Coach Anika Owusu', at: past(20) },
+    { type: 'sitter_added', userId: collab.id, entityType: 'sitter', summary: 'Added subject: Coach Anika Owusu', at: past(20) },
     { type: 'deadline_added', entityType: 'deadline', summary: 'Added deadline: POB Vol. 9 submission window opens', at: past(14) },
     { type: 'sitter_updated', entityType: 'sitter', summary: 'Sofía Quintero moved to In lab', at: past(4) },
     { type: 'ai_run', entityType: 'series', entityId: s1.id, summary: 'Ran AI gap analysis on Latinos in the UK', at: past(2, 16) },
-    { type: 'sitter_added', entityType: 'sitter', summary: 'Added sitter: Ana Rivera', at: past(1, 11) }
+    { type: 'sitter_added', entityType: 'sitter', summary: 'Added subject: Ana Rivera', at: past(1, 11) }
   ]);
 
-  logActivity('demo_seeded', `Seeded demo data (2 series, ${sitters.length} sitters, 12 deadlines, 1 collaborator)`, 'system', '');
+  logActivity('demo_seeded', `Seeded demo data (2 series, ${sitters.length} subjects, 12 deadlines, 1 collaborator)`, 'system', '');
   saveState();
   renderAll();
   showToast('Demo data added. Open Series → Latinos in the UK to see coverage.');
@@ -2055,7 +2055,7 @@ document.addEventListener('DOMContentLoaded', () => {
     el.addEventListener('click', () => switchTab(el.dataset.tab));
   });
 
-  // Sitter filters
+  // Subject filters
   document.getElementById('sitterSearch').addEventListener('input', renderSitters);
   document.getElementById('filterSitterSeries').addEventListener('change', renderSitters);
   document.getElementById('filterSitterStatus').addEventListener('change', renderSitters);

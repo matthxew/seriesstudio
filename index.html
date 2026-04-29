@@ -31,7 +31,7 @@
       </button>
       <button class="nav-item" data-tab="sitters">
         <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M4 21a8 8 0 0 1 16 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        Sitters
+        Subjects
       </button>
       <button class="nav-item" data-tab="calendar">
         <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -87,7 +87,7 @@
           <div class="text-dim">Welcome back. Here is what is moving.</div>
           <div class="btn-row">
             <button class="btn-primary" onclick="openSeriesModal()">New series</button>
-            <button onclick="openSitterModal()">Add sitter</button>
+            <button onclick="openSitterModal()">Add subject</button>
             <button onclick="seedDemoData()" id="seedBtn">Seed demo data</button>
           </div>
         </div>
@@ -99,7 +99,7 @@
             <div class="sub">Owned by you or shared</div>
           </div>
           <div class="card stat-card">
-            <div class="label">Sitters in pipeline</div>
+            <div class="label">Subjects in pipeline</div>
             <div class="value" id="statSitters">0</div>
             <div class="sub" id="statSittersSub">across all series</div>
           </div>
@@ -119,7 +119,7 @@
         <div class="row row-3" id="dashboardSeriesGrid"></div>
         <div id="dashboardSeriesEmpty" class="empty" style="display:none">
           <h3>No series yet</h3>
-          <p>Create your first series, define what to track, and start adding sitters. Or click Seed demo data above.</p>
+          <p>Create your first series, define what to track, and start adding subjects. Or click Seed demo data above.</p>
         </div>
 
         <h2 class="section-title">Upcoming</h2>
@@ -143,7 +143,7 @@
         <div class="toolbar">
           <div>
             <h2 style="margin-bottom:4px">All series</h2>
-            <div class="text-dim">Each series has its own thesis, custom dimensions, sitter pipeline, and output goals.</div>
+            <div class="text-dim">Each series has its own thesis, custom dimensions, subject pipeline, and output goals.</div>
           </div>
           <button class="btn-primary" onclick="openSeriesModal()">New series</button>
         </div>
@@ -177,7 +177,7 @@
           </div>
           <div class="btn-row">
             <button id="viewToggleBtn" onclick="toggleSitterView()">Kanban view</button>
-            <button class="btn-primary" onclick="openSitterModal()">Add sitter</button>
+            <button class="btn-primary" onclick="openSitterModal()">Add subject</button>
           </div>
         </div>
         <div id="sittersListView"></div>
@@ -382,7 +382,7 @@
 <div class="modal-backdrop" id="sitterModal">
   <div class="modal modal-wide">
     <div class="modal-header">
-      <strong id="sitterModalTitle">New sitter</strong>
+      <strong id="sitterModalTitle">New subject</strong>
       <button class="btn-ghost" onclick="closeModal('sitterModal')">Close</button>
     </div>
     <div class="modal-body" id="sitterModalBody"></div>
