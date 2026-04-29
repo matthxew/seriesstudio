@@ -1021,6 +1021,31 @@ function refreshAttachmentsListUI() {
   if (el && workingSitter) el.innerHTML = renderAttachmentsList(workingSitter.attachments || [], 'subject');
 }
 
+async function addTemplate() {
+  const files = await pickFiles({});
+  if (!files.length) return;
+  const file = files[0];
+  const name = prompt('Name this template (e.g., "BJP standard release"):', file.name) || file.name;
+  const tag = prompt('Tag (release / contract / NDA / other) — optional:', 'release') || '';
+  try {
+    const attachmentId = await attPut(file, { ownerType: 'template', name: file.name, mime: file.type, size: file.size });
+    if (!state.templates) state.templates = [];
+    const t = {
+      id: uid('tpl'),
+      attachmentId,
+      name,
+      tag,
+      mime: file.type,
+      size: file.size,
+      addedAt: new Date().toISOString()
+    };
+    state.templates.push(t);
+    saveState();
+    renderSettings();
+    showToast(`Template "${name}" saved`);
+  } catch (e) { showToast('Could not save template: ' + e.message, { tone: 'danger' }); }
+}
+
 function refreshMoodboardUI() {
   // Rerender the active series detail view so the moodboard updates.
   if (typeof detailSeriesId !== 'undefined' && detailSeriesId) {
@@ -1467,6 +1492,32 @@ function renderSettings() {
         <button class="btn-sm btn-danger" onclick="removeCollaborator('${u.id}')">Remove</button>
       </div>
     `).join('');
+  }
+
+  // Templates
+  const tlist = document.getElementById('templatesList');
+  if (tlist) {
+    const ts = state.templates || [];
+    if (ts.length === 0) {
+      tlist.innerHTML = '<div class="text-dim" style="font-style:italic;font-size:13px">No templates yet. Upload a blank release form, contract, or NDA to reuse it across subjects.</div>';
+    } else {
+      tlist.innerHTML = '<div style="display:flex;flex-direction:column;gap:6px">' + ts.map(t => `
+        <div class="flex-between" style="background:var(--surface-raised);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+          <div style="min-width:0;display:flex;align-items:center;gap:10px;flex:1">
+            <div style="font-size:18px;width:22px;text-align:center;color:var(--text-muted)">${fileIsImage(t.mime) ? '◧' : '◼'}</div>
+            <div style="min-width:0;flex:1">
+              <div style="font-size:13px;font-weight:500">${escapeHtml(t.name)}${t.tag ? ` <span class="dim-type-pill" style="margin-left:6px">${escapeHtml(t.tag)}</span>` : ''}</div>
+              <div class="text-muted" style="font-size:11px;font-family:var(--font-mono)">${escapeHtml(t.mime || 'file')} · ${fmtFileSize(t.size)}</div>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-sm btn-ghost" onclick="attOpen('${t.attachmentId}')">Open</button>
+            <button class="btn-sm btn-ghost" onclick="attDownload('${t.attachmentId}', ${JSON.stringify(t.name)})">Download</button>
+            <button class="btn-sm btn-ghost btn-danger" onclick="removeAttachmentFrom('template', '${t.id}')">Remove</button>
+          </div>
+        </div>
+      `).join('') + '</div>';
+    }
   }
   document.getElementById('apiKey').value = state.settings.apiKey || '';
   document.getElementById('apiModel').value = state.settings.apiModel || 'claude-opus-4-6';
