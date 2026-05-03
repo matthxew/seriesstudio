@@ -1,0 +1,23 @@
+{
+  "name": "primary",
+  "version": "1.0.0",
+  "description": "A documentary photography pipeline tool. Track series, subjects, shoots, deadlines, and use AI-assisted features like gap analysis, outreach drafts, and pre-shoot briefs — all in the browser.",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matthxew/seriesstudio.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/matthxew/seriesstudio/issues"
+  },
+  "homepage": "https://github.com/matthxew/seriesstudio#readme",
+  "dependencies": {
+    "@vercel/analytics": "^2.0.1"
+  }
+}
