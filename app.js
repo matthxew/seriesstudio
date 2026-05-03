@@ -1,5 +1,5 @@
 // =====================================================
-// FIELD STUDIO
+// SERIES STUDIO
 // Single-page documentary photography pipeline tool
 // =====================================================
 
@@ -174,10 +174,10 @@ function loadState() {
     }
   } catch (e) { console.warn('loadState failed', e); }
   const userId = uid('u');
-  return {
+  const fresh = {
     version: '1.3',
     currentUserId: userId,
-    users: [{ id: userId, name: 'Matthew', email: 'mjfloxx@gmail.com', team: 'Solo', role: 'owner' }],
+    users: [{ id: userId, name: '', email: '', team: '', role: 'owner' }],
     series: [],
     sitters: [],
     deadlines: [],
@@ -185,6 +185,133 @@ function loadState() {
     activity: [],
     settings: { apiKey: '', apiModel: 'claude-opus-4-7', theme: 'light' }
   };
+  seedFirstRunExamples(fresh);
+  return fresh;
+}
+
+function seedFirstRunExamples(s) {
+  const ownerId = s.currentUserId;
+  const now = new Date().toISOString();
+  const future = (days) => {
+    const d = new Date(); d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+  };
+  const past = (days, hour = 10) => {
+    const d = new Date(); d.setDate(d.getDate() - days); d.setHours(hour, 0, 0, 0);
+    return d.toISOString();
+  };
+
+  const series = {
+    id: uid('s'), ownerId, collaboratorIds: [],
+    name: 'Example series — replace with your project',
+    thesis: 'An example thesis. Replace this with one paragraph describing what this body of work is about and what wider truth it carries. The thesis is the spine the rest of the series hangs off — coverage charts, AI gap analysis, and AI outreach drafts all read from it.',
+    targetSitterCount: 12,
+    targetCompletionDate: future(180),
+    outputGoals: 'Replace with your output goals (zine, microsite, exhibition, submission target).',
+    visualStyleNotes: 'Replace with your visual approach — light, palette, framing, lens choices.',
+    cameras: 'e.g., Mamiya 7II, Leica M6',
+    filmStocks: 'e.g., Portra 400, Tri-X',
+    lenses: 'e.g., 80mm, 35mm',
+    dimensions: [
+      { id: uid('d'), name: 'Generation', type: 'categorical_targets',
+        description: 'Mix of generational experiences. Edit the options + targets to match your project.',
+        options: [
+          { value: '1st gen', target: 4 },
+          { value: '2nd gen', target: 4 },
+          { value: 'Mixed heritage', target: 4 }
+        ] },
+      { id: uid('d'), name: 'City', type: 'categorical_open',
+        description: 'Track which cities are represented. Free-form — coverage shows the distribution.',
+        options: [] },
+      { id: uid('d'), name: 'Age', type: 'numerical',
+        description: 'Age at time of shoot. Coverage shows the average across the project.',
+        options: [] }
+    ],
+    moodboard: [],
+    createdAt: now, updatedAt: now
+  };
+  s.series.push(series);
+
+  const baseSubject = (extra) => ({
+    id: uid('p'), seriesId: series.id, ownerId,
+    name: '', pronouns: '',
+    contactEmail: '', contactPhone: '', contactSocial: '',
+    location: '', meetingContext: '',
+    widerTruth: '', story: '', preShootNotes: '',
+    status: 'prospect',
+    statusUpdatedAt: now,
+    lastContactedAt: '', lastShotAt: '',
+    release: { status: 'not_sent', sentAt: '', signedAt: '', notes: '' },
+    dimensionValues: {},
+    shoots: [], quotes: [], notes: [],
+    attachments: [],
+    aiOutreach: '', aiPreShootBrief: '',
+    createdAt: now, updatedAt: now,
+    addedByUserId: ownerId,
+    ...extra
+  });
+
+  s.sitters.push(
+    baseSubject({
+      name: 'Example — first prospect',
+      location: 'A city that fits your project',
+      meetingContext: 'How you found or were introduced to them.',
+      widerTruth: 'One sentence on the wider truth they exemplify. AI story coach can sharpen this once their story is written.',
+      story: 'A paragraph on who they are, where they sit in the project, and why they belong in the series.',
+      status: 'prospect',
+      dimensionValues: { [series.dimensions[0].id]: '1st gen', [series.dimensions[2].id]: '34' }
+    }),
+    baseSubject({
+      name: 'Example — contacted',
+      location: 'Another city in the mix',
+      meetingContext: 'Cold-emailed via a community network.',
+      widerTruth: 'Replace with the wider truth this subject carries.',
+      story: 'Replace with their story. The richer this is, the better AI pre-shoot brief and outreach drafts read.',
+      status: 'contacted', lastContactedAt: future(-6),
+      contactEmail: 'subject@example.com',
+      release: { status: 'sent', sentAt: future(-6), signedAt: '', notes: 'Sent digital release; awaiting signature.' },
+      dimensionValues: { [series.dimensions[0].id]: '2nd gen', [series.dimensions[2].id]: '28' }
+    }),
+    baseSubject({
+      name: 'Example — scheduled shoot',
+      location: 'A third location',
+      meetingContext: 'Introduced through a mutual contact.',
+      widerTruth: 'Their wider truth, in one sentence.',
+      story: 'Their story in 2–4 sentences. This populates the AI brief.',
+      status: 'scheduled', lastContactedAt: future(-12),
+      contactEmail: 'subject2@example.com',
+      preShootNotes: 'What to bring. What light to plan for. Conversation openers.',
+      release: { status: 'signed', sentAt: future(-10), signedAt: future(-7), notes: 'Signed copy on file.' },
+      dimensionValues: { [series.dimensions[0].id]: 'Mixed heritage', [series.dimensions[2].id]: '41' }
+    }),
+    baseSubject({
+      name: 'Example — finalized',
+      location: 'Wherever the strongest frame came from',
+      meetingContext: 'Long-running relationship from a prior shoot.',
+      widerTruth: 'A specific, concrete sentence about what they exemplify.',
+      story: 'Their story — already shot and edited. The cover candidate of the series.',
+      status: 'finalized', lastContactedAt: future(-30), lastShotAt: future(-22),
+      contactEmail: 'subject3@example.com',
+      release: { status: 'signed', sentAt: future(-30), signedAt: future(-28), notes: 'Editorial + exhibition usage cleared through 2030.' },
+      dimensionValues: { [series.dimensions[0].id]: '1st gen', [series.dimensions[2].id]: '52' },
+      quotes: ['One direct quote from the subject. The strongest one ends up in your final caption.']
+    })
+  );
+
+  s.deadlines.push(
+    { id: uid('dl'), name: 'Example — first shoot', date: future(7), type: 'shoot', relatedSeriesId: series.id, notes: 'Replace with a real shoot date. Calendar filters by type, series, and range.' },
+    { id: uid('dl'), name: 'Example — submission deadline', date: future(45), type: 'submission', relatedSeriesId: series.id, notes: 'Replace with a grant, prize, or publication deadline.' }
+  );
+
+  s.activity.unshift({
+    id: uid('a'), userId: ownerId,
+    type: 'welcome',
+    entityType: 'system', entityId: '',
+    summary: 'Welcome to Series Studio. Edit or delete the example series, subjects, and deadlines to make this your own.',
+    at: past(0)
+  });
+
+  s.firstRunSeeded = true;
 }
 
 function saveState() {
@@ -2131,7 +2258,7 @@ async function exportData() {
   const a = document.createElement('a');
   a.href = url;
   const stamp = new Date().toISOString().split('T')[0];
-  a.download = 'field_studio_' + stamp + '.json';
+  a.download = 'series_studio_' + stamp + '.json';
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
   showToast(`Exported. Bundled ${bundled} attachment${bundled === 1 ? '' : 's'}.`);
@@ -2196,7 +2323,7 @@ function wipeData() {
   state = {
     version: '1.3',
     currentUserId: userId,
-    users: [{ id: userId, name: 'Matthew', email: 'mjfloxx@gmail.com', team: 'Solo', role: 'owner' }],
+    users: [{ id: userId, name: '', email: '', team: '', role: 'owner' }],
     series: [], sitters: [], deadlines: [], templates: [], activity: [],
     settings: { apiKey: '', apiModel: 'claude-opus-4-7', theme: prevTheme, themeUserSet: true }
   };
