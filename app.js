@@ -256,7 +256,7 @@ function seedFirstRunExamples(s) {
       name: 'Example — first prospect',
       location: 'A city that fits your project',
       meetingContext: 'How you found or were introduced to them.',
-      widerTruth: 'One sentence on the wider truth they exemplify. AI story coach can sharpen this once their story is written.',
+      widerTruth: '',
       story: 'A paragraph on who they are, where they sit in the project, and why they belong in the series.',
       status: 'prospect',
       dimensionValues: { [series.dimensions[0].id]: '1st gen', [series.dimensions[2].id]: '34' }
@@ -939,24 +939,31 @@ function renderSitterForm(p) {
         </select>
       </div>
     </div>
-    <div class="form-group">
-      <label>Location</label>
-      <input type="text" id="st_location" value="${escapeHtml(p.location)}" placeholder="e.g., Hackney, London">
-    </div>
-    <div class="form-group">
-      <label>Meeting context</label>
-      <input type="text" id="st_meeting" value="${escapeHtml(p.meetingContext)}" placeholder="How you met or found them">
-    </div>
-    <div class="form-group">
-      <label>The wider truth they exemplify</label>
-      <textarea id="st_widerTruth" placeholder="What wider story does this subject carry? AI story coach can help refine this." style="min-height:60px">${escapeHtml(p.widerTruth)}</textarea>
-    </div>
-    <div class="form-group">
-      <label>Their story</label>
-      <textarea id="st_story" placeholder="Background, context, why this person matters to your series." style="min-height:80px">${escapeHtml(p.story)}</textarea>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Location</label>
+        <input type="text" id="st_location" value="${escapeHtml(p.location)}" placeholder="e.g., Hackney, London">
+      </div>
+      <div class="form-group">
+        <label>How you met</label>
+        <input type="text" id="st_meeting" value="${escapeHtml(p.meetingContext)}" placeholder="How you met or found them">
+      </div>
     </div>
 
     <div class="divider"></div>
+    <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:10px">STORY & PLANNING</div>
+
+    <div class="form-group">
+      <label>Their story</label>
+      <textarea id="st_story" placeholder="Who they are, why they matter to this series, any background context." style="min-height:80px">${escapeHtml(p.story)}</textarea>
+    </div>
+    <div class="form-group">
+      <label>Pre-shoot notes</label>
+      <textarea id="st_preNotes" placeholder="What to bring, what to ask, what light to plan for...">${escapeHtml(p.preShootNotes)}</textarea>
+    </div>
+
+    <div class="divider"></div>
+    <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:10px">CONTACT</div>
 
     <div class="form-row-3">
       <div class="form-group">
@@ -972,18 +979,6 @@ function renderSitterForm(p) {
         <input type="text" id="st_social" value="${escapeHtml(p.contactSocial)}" placeholder="@handle">
       </div>
     </div>
-
-    ${dimensions.length > 0 ? `
-      <div class="divider"></div>
-      <strong style="font-size:14px">Custom dimensions for "${escapeHtml(series.name)}"</strong>
-      <div class="text-dim" style="margin-bottom:10px;font-size:12px">These were defined when you set up the series.</div>
-      <div class="form-row">
-        ${dimensions.map(d => renderDimensionInput(d, p)).join('')}
-      </div>
-    ` : (p.seriesId ? '<div class="text-dim" style="margin-top:14px;font-style:italic;font-size:12px">This series has no custom dimensions yet.</div>' : '')}
-
-    <div class="divider"></div>
-
     <div class="form-row">
       <div class="form-group">
         <label>Last contacted</label>
@@ -994,14 +989,18 @@ function renderSitterForm(p) {
         <input type="date" id="st_lastShot" value="${escapeHtml(p.lastShotAt || '')}">
       </div>
     </div>
-    <div class="form-group">
-      <label>Pre-shoot notes</label>
-      <textarea id="st_preNotes" placeholder="What to bring, what to ask, what light to plan for...">${escapeHtml(p.preShootNotes)}</textarea>
-    </div>
+
+    ${dimensions.length > 0 ? `
+      <div class="divider"></div>
+      <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:10px">DIMENSIONS</div>
+      <div class="form-row">
+        ${dimensions.map(d => renderDimensionInput(d, p)).join('')}
+      </div>
+    ` : (p.seriesId ? '<div class="text-dim" style="margin-top:14px;font-style:italic;font-size:12px">This series has no custom dimensions yet.</div>' : '')}
 
     <div class="divider"></div>
-    <strong style="font-size:14px">Release form status</strong>
-    <div class="form-row" style="margin-top:8px">
+    <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:10px">RELEASE</div>
+    <div class="form-row">
       <div class="form-group">
         <label>Status</label>
         <select id="st_releaseStatus">
@@ -1184,7 +1183,6 @@ function captureSitterFormFields() {
   if (get('st_status'))        workingSitter.status = get('st_status').value;
   if (get('st_location'))      workingSitter.location = get('st_location').value;
   if (get('st_meeting'))       workingSitter.meetingContext = get('st_meeting').value;
-  if (get('st_widerTruth'))    workingSitter.widerTruth = get('st_widerTruth').value;
   if (get('st_story'))         workingSitter.story = get('st_story').value;
   if (get('st_email'))         workingSitter.contactEmail = get('st_email').value;
   if (get('st_phone'))         workingSitter.contactPhone = get('st_phone').value;
@@ -1207,7 +1205,7 @@ function onSitterSeriesChange() {
 function saveSitter() {
   const prevStatus = workingSitter.status;
   captureSitterFormFields();
-  if (!workingSitter.name) { showToast('Sitter name is required.', { tone: 'danger' }); return; }
+  if (!workingSitter.name) { showToast('Subject name is required.', { tone: 'danger' }); return; }
   if (workingSitter.status !== prevStatus) workingSitter.statusUpdatedAt = new Date().toISOString();
   if (workingSitter.release.status === 'sent' && !workingSitter.release.sentAt) workingSitter.release.sentAt = new Date().toISOString();
   if (workingSitter.release.status === 'signed' && !workingSitter.release.signedAt) workingSitter.release.signedAt = new Date().toISOString();
@@ -1847,46 +1845,6 @@ Output as plain prose, no JSON, no markdown headers, around 200 to 350 words. Us
   }
 }
 
-async function aiStoryCoach() {
-  if (!workingSitter) return;
-  if (!workingSitter.name || !workingSitter.story) {
-    showToast('Add a name and story before running the story coach.', { tone: 'danger' });
-    return;
-  }
-  const series = state.series.find(s => s.id === workingSitter.seriesId);
-  const btn = document.getElementById('aiCoachBtn');
-  const orig = btn.textContent;
-  btn.textContent = 'Coaching...'; btn.disabled = true;
-
-  try {
-    const sys = `You help documentary photographers articulate the WIDER TRUTH a single subject exemplifies. Given the subject's story and the series thesis, write a single sentence (max 30 words) that captures what wider truth this subject carries. The sentence should:
-- Be specific, not generic.
-- Tie to the series thesis.
-- Avoid abstractions like "the human condition." Name the actual social, political, or cultural reality.
-- Be in the photographer's own voice (first person if useful).
-
-Output ONLY the sentence. No preamble, no explanation.`;
-
-    let user = '';
-    if (series) {
-      user += 'SERIES: ' + series.name + '\n';
-      user += 'THESIS: ' + (series.thesis || '[no thesis]') + '\n\n';
-    }
-    user += 'SITTER NAME: ' + workingSitter.name + '\n';
-    user += 'LOCATION: ' + (workingSitter.location || '[unknown]') + '\n';
-    user += 'STORY: ' + workingSitter.story + '\n';
-    if (workingSitter.widerTruth) user += '\nCURRENT WIDER TRUTH: ' + workingSitter.widerTruth + '\n(rewrite to be sharper)';
-
-    const text = await callClaude(sys, user, 200);
-    document.getElementById('st_widerTruth').value = text.trim();
-    workingSitter.widerTruth = text.trim();
-    showToast('Wider truth refined.');
-  } catch (e) {
-    showToast('Story coach failed: ' + e.message, { tone: 'danger' });
-  } finally {
-    btn.textContent = orig; btn.disabled = false;
-  }
-}
 
 async function aiOutreach() {
   if (!workingSitter) return;

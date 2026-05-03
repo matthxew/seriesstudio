@@ -55,11 +55,10 @@
         <svg id="themeIcon" viewBox="0 0 24 24" fill="none"></svg>
         Toggle theme
       </button>
-      <div class="user-row" style="cursor:default">
-        <div class="user-avatar" id="userAvatar">?</div>
+      <div class="user-row" style="cursor:pointer" onclick="switchTab('settings')">
+        <div class="user-avatar" id="userAvatar">P</div>
         <div style="min-width:0;flex:1">
           <div style="font-weight:500;font-size:13px" id="userName">You</div>
-          <div class="text-muted" style="font-size:11px" id="userTeam">Solo</div>
         </div>
       </div>
     </div>
@@ -283,7 +282,7 @@
             <span class="pill" id="apiStatusPill"><span class="dot"></span>Not configured</span>
           </div>
           <div class="text-dim" style="margin-bottom:14px;font-size:13px">
-            Paste your Anthropic API key once. AI assist powers gap analysis, story coaching, and outreach drafting. Get a key at <kbd>console.anthropic.com</kbd>.
+            Paste your Anthropic API key once. AI assist powers gap analysis, outreach drafts, and pre-shoot briefs. Get a key at <kbd>console.anthropic.com</kbd>.
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -371,7 +370,6 @@
     <div class="modal-footer">
       <button onclick="deleteSitter()" class="btn-danger" id="sitterDeleteBtn" style="display:none">Delete</button>
       <div class="spacer"></div>
-      <button class="btn-ai" onclick="aiStoryCoach()" id="aiCoachBtn">AI story coach</button>
       <button class="btn-ai" onclick="aiOutreach()" id="aiOutreachBtn">AI outreach draft</button>
       <button class="btn-ai" onclick="aiPreShootBrief()" id="aiBriefBtn">AI pre-shoot brief</button>
       <button class="btn-ghost" onclick="closeModal('sitterModal')">Cancel</button>
