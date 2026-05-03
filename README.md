@@ -1,6 +1,6 @@
 # Series Studio
 
-A single-page documentary photography pipeline tool. Track series, subjects, shoots, deadlines, and use AI-assisted features like gap analysis, story coaching, and outreach drafts — all in the browser.
+A documentary photography pipeline tool. Track series, subjects, shoots, deadlines, and use AI-assisted features like gap analysis, story coaching, and outreach drafts — all in the browser.
 
 ## Features
 
