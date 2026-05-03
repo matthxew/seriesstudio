@@ -456,7 +456,7 @@ label {
 [data-theme="dark"] .stat-card.stat-amber   { --stat-accent: #fbbf24; }
 [data-theme="dark"] .stat-card.stat-emerald { --stat-accent: #34d399; }
 
-.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
+.toolbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .flex-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
