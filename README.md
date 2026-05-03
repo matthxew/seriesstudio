@@ -8,7 +8,7 @@ A documentary photography pipeline tool. Track series, subjects, shoots, deadlin
 - **Subject pipeline** — track subjects from prospect through contacted, scheduled, shot, and finalized with status-driven kanban and list views
 - **Coverage charts** — see how your series is filling across categorical and numerical dimensions
 - **Calendar & deadlines** — shoots, submissions, lab returns, exhibitions, filterable by type, series, and date range
-- **AI tools** — gap analysis, story coach, outreach drafts, and pre-shoot briefs powered by the Claude API (bring your own key)
+- **AI tools** — gap analysis, outreach drafts, and pre-shoot briefs powered by the Claude API (bring your own key)
 - **Moodboard** — attach reference images to each series
 - **Attachments & releases** — upload files per subject and track model release status
 - **Import / export** — full JSON backup including attachment blobs
