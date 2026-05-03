@@ -170,12 +170,35 @@ function loadState() {
         (parsed.series || []).forEach(s => { if (!s.moodboard) s.moodboard = []; });
         parsed.version = '1.3';
       }
+      // Schema migration to 1.4: gear kits (camera-anchored film/lens grouping)
+      if (parseFloat(parsed.version) < 1.4) {
+        (parsed.series || []).forEach(s => {
+          if (!s.kits) {
+            const cameras = (s.cameras || '').split(',').map(v => v.trim()).filter(Boolean);
+            const films = (s.filmStocks || '').split(',').map(v => v.trim()).filter(Boolean);
+            const lenses = (s.lenses || '').split(',').map(v => v.trim()).filter(Boolean);
+            if (cameras.length > 0) {
+              s.kits = cameras.map((cam, i) => ({
+                id: 'kit_' + Math.random().toString(36).slice(2, 10),
+                camera: cam,
+                films: i === 0 ? films : [],
+                lenses: i === 0 ? lenses : []
+              }));
+            } else if (films.length || lenses.length) {
+              s.kits = [{ id: 'kit_' + Math.random().toString(36).slice(2, 10), camera: '', films, lenses }];
+            } else {
+              s.kits = [];
+            }
+          }
+        });
+        parsed.version = '1.4';
+      }
       return parsed;
     }
   } catch (e) { console.warn('loadState failed', e); }
   const userId = uid('u');
   const fresh = {
-    version: '1.3',
+    version: '1.4',
     currentUserId: userId,
     users: [{ id: userId, name: '', email: '', team: '', role: 'owner' }],
     series: [],
@@ -209,9 +232,13 @@ function seedFirstRunExamples(s) {
     targetCompletionDate: future(180),
     outputGoals: 'Replace with your end use (exhibition, zine, microsite, grant submission).',
     visualStyleNotes: 'Replace with your visual approach — light, palette, framing, lens choices.',
-    cameras: 'e.g., Mamiya 7II, Leica M6',
-    filmStocks: 'e.g., Portra 400, Tri-X',
-    lenses: 'e.g., 80mm, 35mm',
+    kits: [
+      { id: uid('kit'), camera: 'Mamiya 7II', films: ['Portra 400', 'Tri-X 400'], lenses: ['80mm'] },
+      { id: uid('kit'), camera: 'Leica M6', films: ['Tri-X 400'], lenses: ['35mm', '50mm'] }
+    ],
+    cameras: 'Mamiya 7II, Leica M6',
+    filmStocks: 'Portra 400, Tri-X 400',
+    lenses: '80mm, 35mm, 50mm',
     dimensions: [
       { id: uid('d'), name: 'Generation', type: 'categorical_targets',
         description: 'Mix of generational experiences. Edit the options + targets to match your project.',
@@ -443,6 +470,7 @@ function emptySeries() {
     targetSitterCount: 12,
     targetCompletionDate: '',
     outputGoals: '', visualStyleNotes: '',
+    kits: [],
     cameras: '', filmStocks: '', lenses: '',
     dimensions: [],
     moodboard: [],
@@ -451,42 +479,124 @@ function emptySeries() {
   };
 }
 
-function renderChipInput(id, label, value, placeholder) {
-  const items = (value || '').split(',').map(v => v.trim()).filter(Boolean);
-  const chips = items.map(v =>
-    `<span class="chip" data-field="${id}">${escapeHtml(v)}<button type="button" class="chip-remove" onclick="removeChip('${id}',this)" aria-label="Remove">&times;</button></span>`
-  ).join('');
-  return `<div class="form-group">
-    <label>${label}</label>
-    <div class="chip-input" id="${id}">${chips}<button type="button" class="chip-add" onclick="addChip('${id}','${placeholder}')" aria-label="Add">+</button></div>
-  </div>`;
+// =====================================================
+// GEAR KITS — camera-anchored film/lens grouping
+// =====================================================
+function renderKitsList(s) {
+  if (!s.kits || s.kits.length === 0) {
+    return '<div class="text-dim" style="font-style:italic;padding:8px 0">No camera kits yet. Add one to define your gear.</div>';
+  }
+  return s.kits.map((kit, idx) => `
+    <div class="kit-card">
+      <div class="kit-header">
+        <span class="kit-camera-name">${escapeHtml(kit.camera) || '(unnamed camera)'}</span>
+        <button class="btn-sm btn-danger" onclick="removeKit(${idx})">Remove</button>
+      </div>
+      <div style="margin-bottom:8px">
+        <label>Film stocks</label>
+        <div class="chip-input">
+          ${(kit.films || []).map((f, fi) => `<span class="chip">${escapeHtml(f)}<button type="button" class="chip-remove" onclick="removeKitChip(${idx},'films',${fi})" aria-label="Remove">&times;</button></span>`).join('')}
+          <button type="button" class="chip-add" onclick="startKitChipInput(${idx},'films','Film stock')" aria-label="Add film">+</button>
+        </div>
+      </div>
+      <div>
+        <label>Lenses</label>
+        <div class="chip-input">
+          ${(kit.lenses || []).map((l, li) => `<span class="chip">${escapeHtml(l)}<button type="button" class="chip-remove" onclick="removeKitChip(${idx},'lenses',${li})" aria-label="Remove">&times;</button></span>`).join('')}
+          <button type="button" class="chip-add" onclick="startKitChipInput(${idx},'lenses','Lens')" aria-label="Add lens">+</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
 }
 
-function addChip(fieldId, placeholder) {
-  const val = prompt(placeholder);
-  if (!val || !val.trim()) return;
-  const container = document.getElementById(fieldId);
+function refreshKitsList() {
+  const el = document.getElementById('ser_kits');
+  if (el) el.innerHTML = renderKitsList(workingSeries);
+}
+
+function addKit() {
+  const container = document.getElementById('ser_kits');
+  // Replace the Add camera button with an inline input
+  const btn = container.querySelector('.kit-add-btn');
+  if (btn) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'chip-inline-input';
+    input.placeholder = 'Camera name';
+    input.style.marginBottom = '8px';
+    input.style.width = '200px';
+    input.style.display = 'block';
+    btn.style.display = 'none';
+    btn.parentNode.insertBefore(input, btn);
+    input.focus();
+    const confirm = () => {
+      const val = input.value.trim();
+      input.remove();
+      btn.style.display = '';
+      if (val) {
+        if (!workingSeries.kits) workingSeries.kits = [];
+        workingSeries.kits.push({ id: uid('kit'), camera: val, films: [], lenses: [] });
+        refreshKitsList();
+      }
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+      if (e.key === 'Escape') { input.value = ''; confirm(); }
+    });
+    input.addEventListener('blur', confirm);
+  }
+}
+
+function removeKit(idx) {
+  if (!workingSeries.kits) return;
+  workingSeries.kits.splice(idx, 1);
+  refreshKitsList();
+}
+
+function startKitChipInput(kitIdx, field, placeholder) {
+  // Find the chip-input container for this kit/field and replace the + button with an inline input
+  const kitCards = document.querySelectorAll('#ser_kits .kit-card');
+  const card = kitCards[kitIdx];
+  if (!card) return;
+  const containers = card.querySelectorAll('.chip-input');
+  const container = field === 'films' ? containers[0] : containers[1];
+  if (!container) return;
   const addBtn = container.querySelector('.chip-add');
-  const chip = document.createElement('span');
-  chip.className = 'chip';
-  chip.dataset.field = fieldId;
-  chip.innerHTML = `${escapeHtml(val.trim())}<button type="button" class="chip-remove" onclick="removeChip('${fieldId}',this)" aria-label="Remove">&times;</button>`;
-  container.insertBefore(chip, addBtn);
+  if (!addBtn) return;
+  addBtn.style.display = 'none';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'chip-inline-input';
+  input.placeholder = placeholder;
+  container.appendChild(input);
+  input.focus();
+  const confirm = () => {
+    const val = input.value.trim();
+    input.remove();
+    addBtn.style.display = '';
+    if (val) {
+      confirmKitChip(kitIdx, field, val);
+    }
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+    if (e.key === 'Escape') { input.value = ''; confirm(); }
+  });
+  input.addEventListener('blur', confirm);
 }
 
-function removeChip(fieldId, btn) {
-  btn.closest('.chip').remove();
+function confirmKitChip(kitIdx, field, value) {
+  if (!workingSeries.kits || !workingSeries.kits[kitIdx]) return;
+  if (!workingSeries.kits[kitIdx][field]) workingSeries.kits[kitIdx][field] = [];
+  workingSeries.kits[kitIdx][field].push(value);
+  refreshKitsList();
 }
 
-function readChips(fieldId) {
-  const container = document.getElementById(fieldId);
-  if (!container) return '';
-  return Array.from(container.querySelectorAll('.chip')).map(el => {
-    const clone = el.cloneNode(true);
-    const rm = clone.querySelector('.chip-remove');
-    if (rm) rm.remove();
-    return clone.textContent.trim();
-  }).filter(Boolean).join(', ');
+function removeKitChip(kitIdx, field, chipIdx) {
+  if (!workingSeries.kits || !workingSeries.kits[kitIdx]) return;
+  workingSeries.kits[kitIdx][field].splice(chipIdx, 1);
+  refreshKitsList();
 }
 
 function renderReadOnlyChips(value) {
@@ -526,11 +636,14 @@ function renderSeriesForm(s) {
       <textarea id="ser_visual" placeholder="Light, palette, framing approach...">${escapeHtml(s.visualStyleNotes || '')}</textarea>
     </div>
 
-    <div class="form-row-3">
-      ${renderChipInput('ser_cameras', 'Cameras', s.cameras, 'Camera name, e.g. Mamiya 7II')}
-      ${renderChipInput('ser_filmStocks', 'Film stocks', s.filmStocks, 'Film stock, e.g. Portra 400')}
-      ${renderChipInput('ser_lenses', 'Lenses', s.lenses, 'Lens, e.g. 35mm')}
+    <div class="flex-between" style="margin-bottom:10px">
+      <div>
+        <strong style="font-size:14px">Gear kits</strong>
+        <div class="text-dim" style="margin-top:2px;font-size:12px">Group film and lenses by camera body.</div>
+      </div>
+      <button type="button" class="btn-sm kit-add-btn" onclick="addKit()">+ Add camera</button>
     </div>
+    <div id="ser_kits">${renderKitsList(s)}</div>
 
     <div class="divider"></div>
 
@@ -653,9 +766,10 @@ function saveSeries() {
   workingSeries.targetCompletionDate = document.getElementById('ser_targetDate').value;
   workingSeries.outputGoals = document.getElementById('ser_outputs').value;
   workingSeries.visualStyleNotes = document.getElementById('ser_visual').value;
-  workingSeries.cameras = readChips('ser_cameras');
-  workingSeries.filmStocks = readChips('ser_filmStocks');
-  workingSeries.lenses = readChips('ser_lenses');
+  // Derive flat fields from kits for backward compat
+  workingSeries.cameras = (workingSeries.kits || []).map(k => k.camera).filter(Boolean).join(', ');
+  workingSeries.filmStocks = [...new Set((workingSeries.kits || []).flatMap(k => k.films || []))].join(', ');
+  workingSeries.lenses = [...new Set((workingSeries.kits || []).flatMap(k => k.lenses || []))].join(', ');
   workingSeries.updatedAt = new Date().toISOString();
 
   if (editingSeriesId) {
@@ -755,28 +869,31 @@ function renderSeriesDetail(s) {
       </div>
     </div>
 
-    ${(s.visualStyleNotes || s.cameras || s.filmStocks || s.lenses) ? `
+    ${s.visualStyleNotes ? `
     <div class="card" style="margin-bottom:20px">
-      ${s.visualStyleNotes ? `<div style="margin-bottom:12px">
-        <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">VISUAL STYLE</div>
-        <div style="font-size:13px;line-height:1.55">${escapeHtml(s.visualStyleNotes)}</div>
-      </div>` : ''}
-      <div class="form-row-3" style="gap:14px">
-        ${s.cameras ? `<div>
-          <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">CAMERAS</div>
-          <div style="display:flex;flex-wrap:wrap;gap:4px">${renderReadOnlyChips(s.cameras)}</div>
-        </div>` : ''}
-        ${s.filmStocks ? `<div>
-          <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">FILM</div>
-          <div style="display:flex;flex-wrap:wrap;gap:4px">${renderReadOnlyChips(s.filmStocks)}</div>
-        </div>` : ''}
-        ${s.lenses ? `<div>
-          <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">LENSES</div>
-          <div style="display:flex;flex-wrap:wrap;gap:4px">${renderReadOnlyChips(s.lenses)}</div>
-        </div>` : ''}
-      </div>
-    </div>
-    ` : ''}
+      <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">VISUAL STYLE</div>
+      <div style="font-size:13px;line-height:1.55">${escapeHtml(s.visualStyleNotes)}</div>
+    </div>` : ''}
+
+    ${(s.kits && s.kits.length > 0) ? `
+    <div style="margin-bottom:20px">
+      <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:8px">GEAR KITS</div>
+      ${s.kits.map(kit => `
+        <div class="kit-card">
+          <div class="kit-header">
+            <span class="kit-camera-name">${escapeHtml(kit.camera) || '(unnamed camera)'}</span>
+          </div>
+          ${(kit.films && kit.films.length) ? `<div style="margin-bottom:6px">
+            <span class="text-muted" style="font-size:11px">Film: </span>
+            <span style="display:inline-flex;flex-wrap:wrap;gap:4px">${kit.films.map(f => `<span class="chip chip-readonly">${escapeHtml(f)}</span>`).join('')}</span>
+          </div>` : ''}
+          ${(kit.lenses && kit.lenses.length) ? `<div>
+            <span class="text-muted" style="font-size:11px">Lens: </span>
+            <span style="display:inline-flex;flex-wrap:wrap;gap:4px">${kit.lenses.map(l => `<span class="chip chip-readonly">${escapeHtml(l)}</span>`).join('')}</span>
+          </div>` : ''}
+        </div>
+      `).join('')}
+    </div>` : ''}
 
     <div class="flex-between" style="margin:24px 0 10px">
       <h3 style="margin:0">Moodboard</h3>
@@ -1973,9 +2090,18 @@ Total length: 350–500 words. No preamble before VISUAL APPROACH. No closing re
       user += 'SERIES: ' + series.name + '\n';
       user += 'SERIES THESIS: ' + (series.thesis || '[no thesis]') + '\n';
       if (series.visualStyleNotes) user += 'VISUAL STYLE NOTES: ' + series.visualStyleNotes + '\n';
-      if (series.cameras) user += 'CAMERAS: ' + series.cameras + '\n';
-      if (series.filmStocks) user += 'FILM STOCKS: ' + series.filmStocks + '\n';
-      if (series.lenses) user += 'LENSES: ' + series.lenses + '\n';
+      if (series.kits && series.kits.length > 0) {
+        user += 'GEAR KITS:\n';
+        series.kits.forEach(kit => {
+          const films = (kit.films || []).join(', ') || 'no film specified';
+          const lenses = (kit.lenses || []).join(', ') || 'fixed lens';
+          user += '- ' + (kit.camera || 'unnamed') + ': ' + films + ' / ' + lenses + '\n';
+        });
+      } else {
+        if (series.cameras) user += 'CAMERAS: ' + series.cameras + '\n';
+        if (series.filmStocks) user += 'FILM STOCKS: ' + series.filmStocks + '\n';
+        if (series.lenses) user += 'LENSES: ' + series.lenses + '\n';
+      }
       user += '\n';
     }
     user += 'SUBJECT: ' + workingSitter.name + '\n';
@@ -2303,7 +2429,7 @@ function wipeData() {
   const userId = uid('u');
   const prevTheme = state.settings?.theme || 'light';
   state = {
-    version: '1.3',
+    version: '1.4',
     currentUserId: userId,
     users: [{ id: userId, name: '', email: '', team: '', role: 'owner' }],
     series: [], sitters: [], deadlines: [], templates: [], activity: [],
