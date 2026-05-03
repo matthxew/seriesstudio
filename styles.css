@@ -1,5 +1,5 @@
 /* =========================================================
-   FIELD STUDIO — design system
+   SERIES STUDIO — design system
    Dark + light themes via [data-theme] on <html>
    ========================================================= */
 
@@ -1030,7 +1030,7 @@ summary:hover { color: var(--text); }
   min-height: 60px;
 }
 .ai-stream::after {
-  content: '▍';
+  content: '◍';
   display: inline-block;
   color: var(--accent);
   animation: blink 1s steps(2) infinite;
