@@ -451,6 +451,50 @@ function emptySeries() {
   };
 }
 
+function renderChipInput(id, label, value, placeholder) {
+  const items = (value || '').split(',').map(v => v.trim()).filter(Boolean);
+  const chips = items.map(v =>
+    `<span class="chip" data-field="${id}">${escapeHtml(v)}<button type="button" class="chip-remove" onclick="removeChip('${id}',this)" aria-label="Remove">&times;</button></span>`
+  ).join('');
+  return `<div class="form-group">
+    <label>${label}</label>
+    <div class="chip-input" id="${id}">${chips}<button type="button" class="chip-add" onclick="addChip('${id}','${placeholder}')" aria-label="Add">+</button></div>
+  </div>`;
+}
+
+function addChip(fieldId, placeholder) {
+  const val = prompt(placeholder);
+  if (!val || !val.trim()) return;
+  const container = document.getElementById(fieldId);
+  const addBtn = container.querySelector('.chip-add');
+  const chip = document.createElement('span');
+  chip.className = 'chip';
+  chip.dataset.field = fieldId;
+  chip.innerHTML = `${escapeHtml(val.trim())}<button type="button" class="chip-remove" onclick="removeChip('${fieldId}',this)" aria-label="Remove">&times;</button>`;
+  container.insertBefore(chip, addBtn);
+}
+
+function removeChip(fieldId, btn) {
+  btn.closest('.chip').remove();
+}
+
+function readChips(fieldId) {
+  const container = document.getElementById(fieldId);
+  if (!container) return '';
+  return Array.from(container.querySelectorAll('.chip')).map(el => {
+    const clone = el.cloneNode(true);
+    const rm = clone.querySelector('.chip-remove');
+    if (rm) rm.remove();
+    return clone.textContent.trim();
+  }).filter(Boolean).join(', ');
+}
+
+function renderReadOnlyChips(value) {
+  if (!value) return '';
+  return value.split(',').map(v => v.trim()).filter(Boolean)
+    .map(v => `<span class="chip chip-readonly">${escapeHtml(v)}</span>`).join(' ');
+}
+
 function renderSeriesForm(s) {
   return `
     <div class="form-row">
@@ -483,18 +527,9 @@ function renderSeriesForm(s) {
     </div>
 
     <div class="form-row-3">
-      <div class="form-group">
-        <label>Cameras</label>
-        <input type="text" id="ser_cameras" value="${escapeHtml(s.cameras || '')}" placeholder="e.g., Mamiya 7II, Leica M6">
-      </div>
-      <div class="form-group">
-        <label>Film stocks</label>
-        <input type="text" id="ser_filmStocks" value="${escapeHtml(s.filmStocks || '')}" placeholder="e.g., Portra 400, Tri-X 400">
-      </div>
-      <div class="form-group">
-        <label>Lenses</label>
-        <input type="text" id="ser_lenses" value="${escapeHtml(s.lenses || '')}" placeholder="e.g., 35mm, 80mm">
-      </div>
+      ${renderChipInput('ser_cameras', 'Cameras', s.cameras, 'Camera name, e.g. Mamiya 7II')}
+      ${renderChipInput('ser_filmStocks', 'Film stocks', s.filmStocks, 'Film stock, e.g. Portra 400')}
+      ${renderChipInput('ser_lenses', 'Lenses', s.lenses, 'Lens, e.g. 35mm')}
     </div>
 
     <div class="divider"></div>
@@ -618,9 +653,9 @@ function saveSeries() {
   workingSeries.targetCompletionDate = document.getElementById('ser_targetDate').value;
   workingSeries.outputGoals = document.getElementById('ser_outputs').value;
   workingSeries.visualStyleNotes = document.getElementById('ser_visual').value;
-  workingSeries.cameras = document.getElementById('ser_cameras').value;
-  workingSeries.filmStocks = document.getElementById('ser_filmStocks').value;
-  workingSeries.lenses = document.getElementById('ser_lenses').value;
+  workingSeries.cameras = readChips('ser_cameras');
+  workingSeries.filmStocks = readChips('ser_filmStocks');
+  workingSeries.lenses = readChips('ser_lenses');
   workingSeries.updatedAt = new Date().toISOString();
 
   if (editingSeriesId) {
@@ -729,15 +764,15 @@ function renderSeriesDetail(s) {
       <div class="form-row-3" style="gap:14px">
         ${s.cameras ? `<div>
           <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">CAMERAS</div>
-          <div style="font-size:13px;font-family:var(--font-mono)">${escapeHtml(s.cameras)}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">${renderReadOnlyChips(s.cameras)}</div>
         </div>` : ''}
         ${s.filmStocks ? `<div>
           <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">FILM</div>
-          <div style="font-size:13px;font-family:var(--font-mono)">${escapeHtml(s.filmStocks)}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">${renderReadOnlyChips(s.filmStocks)}</div>
         </div>` : ''}
         ${s.lenses ? `<div>
           <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">LENSES</div>
-          <div style="font-size:13px;font-family:var(--font-mono)">${escapeHtml(s.lenses)}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">${renderReadOnlyChips(s.lenses)}</div>
         </div>` : ''}
       </div>
     </div>
