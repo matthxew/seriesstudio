@@ -207,7 +207,7 @@ function seedFirstRunExamples(s) {
     thesis: 'An example thesis. Replace this with one paragraph describing what this body of work is about and what wider truth it carries. The thesis is the spine the rest of the series hangs off — coverage charts, AI gap analysis, and AI outreach drafts all read from it.',
     targetSitterCount: 12,
     targetCompletionDate: future(180),
-    outputGoals: 'Replace with your output goals (zine, microsite, exhibition, submission target).',
+    outputGoals: 'Replace with your end use (exhibition, zine, microsite, grant submission).',
     visualStyleNotes: 'Replace with your visual approach — light, palette, framing, lens choices.',
     cameras: 'e.g., Mamiya 7II, Leica M6',
     filmStocks: 'e.g., Portra 400, Tri-X',
@@ -473,8 +473,8 @@ function renderSeriesForm(s) {
         <input type="date" id="ser_targetDate" value="${escapeHtml(s.targetCompletionDate || '')}">
       </div>
       <div class="form-group">
-        <label>Output goals</label>
-        <input type="text" id="ser_outputs" value="${escapeHtml(s.outputGoals || '')}" placeholder="e.g., POB Vol. 9, microsite, zine">
+        <label>End use</label>
+        <input type="text" id="ser_outputs" value="${escapeHtml(s.outputGoals || '')}" placeholder="e.g., exhibition, zine, microsite, grant submission">
       </div>
     </div>
     <div class="form-group">
@@ -698,7 +698,7 @@ function renderSeriesDetail(s) {
         <div style="font-size:14px;line-height:1.55">${escapeHtml(s.thesis) || '<span class="text-dim">No thesis yet</span>'}</div>
       </div>
       <div>
-        <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">OUTPUT GOALS</div>
+        <div class="text-muted" style="font-size:11px;letter-spacing:0.3px;margin-bottom:4px">END USE</div>
         <div style="font-size:14px">${escapeHtml(s.outputGoals) || '<span class="text-dim">Not set</span>'}</div>
         ${s.targetCompletionDate ? '<div class="text-muted" style="margin-top:6px;font-family:var(--font-mono);font-size:11px">Target completion: ' + formatDate(s.targetCompletionDate) + '</div>' : ''}
       </div>
@@ -878,7 +878,7 @@ function renderSitterListCompact(sitters) {
 function openSitterModal(id, presetSeriesId) {
   editingSitterId = id || null;
   workingSitter = id ? JSON.parse(JSON.stringify(state.sitters.find(p => p.id === id))) : emptySitter(presetSeriesId);
-  document.getElementById('sitterModalTitle').textContent = id ? 'Edit sitter' : 'New sitter';
+  document.getElementById('sitterModalTitle').textContent = id ? 'Edit subject' : 'New subject';
   document.getElementById('sitterDeleteBtn').style.display = id ? 'inline-block' : 'none';
   document.getElementById('sitterModalBody').innerHTML = renderSitterForm(workingSitter);
   const m = document.getElementById('sitterModal');
@@ -1015,11 +1015,6 @@ function renderSitterForm(p) {
         <input type="text" id="st_releaseNotes" value="${escapeHtml(p.release.notes || '')}" placeholder="e.g., paper copy in studio drawer">
       </div>
     </div>
-
-    <div class="divider"></div>
-    <strong style="font-size:14px">Subject quotes</strong>
-    <div class="text-dim" style="margin-bottom:10px;font-size:12px">Direct quotes — used in captions. One per line.</div>
-    <textarea id="st_quotes" placeholder="One quote per line." style="min-height:80px">${escapeHtml((p.quotes || []).join('\n'))}</textarea>
 
     <div class="divider"></div>
 
@@ -1200,7 +1195,6 @@ function captureSitterFormFields() {
   if (!workingSitter.release) workingSitter.release = { status: 'not_sent', sentAt: '', signedAt: '', notes: '' };
   if (get('st_releaseStatus')) workingSitter.release.status = get('st_releaseStatus').value;
   if (get('st_releaseNotes'))  workingSitter.release.notes = get('st_releaseNotes').value;
-  if (get('st_quotes'))        workingSitter.quotes = get('st_quotes').value.split('\n').map(q => q.trim()).filter(Boolean);
 }
 
 function onSitterSeriesChange() {
@@ -1258,7 +1252,7 @@ function openDeadlineModal(id) {
   document.getElementById('deadlineModalBody').innerHTML = `
     <div class="form-group">
       <label>Name</label>
-      <input type="text" id="dl_name" value="${escapeHtml(workingDeadline.name)}" placeholder="e.g., POB Vol. 9 submission">
+      <input type="text" id="dl_name" value="${escapeHtml(workingDeadline.name)}" placeholder="e.g., grant submission, exhibition deadline">
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1514,11 +1508,6 @@ function renderDashboard() {
     ? '<div class="text-dim" style="font-style:italic;font-size:13px">No submission deadlines in the next 30 days.</div>'
     : allDl.map(deadlineItem).join('');
 
-  const actDiv = document.getElementById('dashboardActivity');
-  const recent = state.activity.slice(0, 8);
-  actDiv.innerHTML = recent.length === 0
-    ? '<div class="text-dim" style="font-style:italic;padding:14px">No activity yet.</div>'
-    : recent.map(activityItem).join('');
 }
 
 function seriesAccent(id) {
@@ -1820,7 +1809,7 @@ Output as plain prose, no JSON, no markdown headers, around 200 to 350 words. Us
     user += 'SERIES THESIS: ' + (s.thesis || '[no thesis]') + '\n\n';
     user += 'TARGET SUBJECT COUNT: ' + (s.targetSitterCount || 12) + '\n';
     user += 'CURRENT SUBJECT COUNT: ' + sitters.length + '\n';
-    if (s.outputGoals) user += 'OUTPUT GOALS: ' + s.outputGoals + '\n';
+    if (s.outputGoals) user += 'END USE: ' + s.outputGoals + '\n';
     user += '\nDIMENSIONS THE PHOTOGRAPHER IS TRACKING:\n';
     (s.dimensions || []).forEach(d => {
       user += '- ' + d.name + ' (type: ' + d.type + ')';
@@ -2095,7 +2084,7 @@ let cmdkResults = [];
 function buildCommands() {
   const cmds = [
     { section: 'Create', label: 'New series', icon: 'plus', run: () => openSeriesModal() },
-    { section: 'Create', label: 'New sitter', icon: 'plus', run: () => openSitterModal() },
+    { section: 'Create', label: 'New subject', icon: 'plus', run: () => openSitterModal() },
     { section: 'Create', label: 'New deadline', icon: 'plus', run: () => openDeadlineModal() },
     { section: 'Navigate', label: 'Go to Dashboard', icon: 'arrow', run: () => switchTab('dashboard') },
     { section: 'Navigate', label: 'Go to Series', icon: 'arrow', run: () => switchTab('series') },
